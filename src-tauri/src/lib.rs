@@ -12,7 +12,7 @@ pub mod build;
 pub mod settings;
 pub mod source;
 
-use commands::{publish_docker_status, BuildState, DockerState};
+use commands::{BuildState, DockerState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -29,29 +29,10 @@ pub fn run() {
             let handle = app.handle().clone();
 
             // Image inspection/build can take minutes, so keep it off the UI thread.
+            // The shared helper also publishes status events and serializes with
+            // build-time re-checks after Full Clean.
             tauri::async_runtime::spawn(async move {
-                let publish = |stage: &'static str, message: &str| {
-                    publish_docker_status(&handle, stage, message.to_owned());
-                };
-
-                match docker::ensure_builder_image(|stage| {
-                    let message = match stage {
-                        "checking" => "Checking Docker daemon and builder image...",
-                        "building" => "Building sonic-mania-builder:latest (first run only)...",
-                        other => other,
-                    };
-                    publish(stage, message);
-                })
-                .await
-                {
-                    Ok(docker::ImageStatus::AlreadyPresent) => {
-                        publish("ready", "Builder image is ready.");
-                    }
-                    Ok(docker::ImageStatus::Built) => {
-                        publish("ready", "Builder image built and ready.");
-                    }
-                    Err(error) => publish("failed", &error.to_string()),
-                }
+                let _ = commands::ensure_docker_image(&handle).await;
             });
 
             Ok(())

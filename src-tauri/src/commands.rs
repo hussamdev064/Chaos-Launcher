@@ -15,9 +15,10 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::ShellExt;
 
 use crate::build::{
-    self, BuildRequest, BuildTarget, OutputFormat, TargetArchitecture, TargetPlatform,
+    self, BuildEvent, BuildRequest, BuildTarget, OutputFormat, TargetArchitecture, TargetPlatform,
 };
 use crate::clean::{self, CleanPlan, CleanReport, CleanRequest};
+use crate::docker;
 use crate::settings::{self, LauncherSettings};
 use crate::source::{asset, git};
 
@@ -45,6 +46,9 @@ impl Default for DockerStatus {
 #[derive(Debug, Default)]
 pub struct DockerState {
     status: Mutex<DockerStatus>,
+    /// Serializes startup and build-time image checks so Full Clean can safely
+    /// remove the image without two callers racing to rebuild it.
+    bootstrap: tokio::sync::Mutex<()>,
 }
 
 /// One launcher operation at a time. Builds mutate the shared cache and Docker
@@ -129,6 +133,55 @@ pub fn publish_docker_status(app: &tauri::AppHandle, stage: &'static str, messag
         }
     }
     let _ = app.emit(DOCKER_STATUS_EVENT, status);
+}
+
+fn docker_stage_message(stage: &'static str) -> &'static str {
+    match stage {
+        "checking" => "Checking Docker daemon and builder image...",
+        "building" => "Building sonic-mania-builder:latest (first run only)...",
+        other => other,
+    }
+}
+
+/// Re-check the builder image on demand. Full Clean removes it, so a cached
+/// startup `ready` status must not be trusted for later builds.
+pub async fn ensure_docker_image(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app
+        .try_state::<DockerState>()
+        .ok_or_else(|| "Docker state is unavailable.".to_owned())?;
+    let _guard = state.bootstrap.lock().await;
+
+    match docker::ensure_builder_image(|stage| {
+        publish_docker_status(app, stage, docker_stage_message(stage));
+    })
+    .await
+    {
+        Ok(docker::ImageStatus::AlreadyPresent) => {
+            publish_docker_status(app, "ready", "Builder image is ready.");
+            Ok(())
+        }
+        Ok(docker::ImageStatus::Built) => {
+            publish_docker_status(app, "ready", "Builder image built and ready.");
+            Ok(())
+        }
+        Err(error) => {
+            let message = error.to_string();
+            publish_docker_status(app, "failed", &message);
+            Err(message)
+        }
+    }
+}
+
+fn requires_builder_image(platform: TargetPlatform) -> bool {
+    // macOS builds run natively and do not need the Docker builder image.
+    platform != TargetPlatform::Macos
+}
+
+fn removed_builder_image(report: &CleanReport) -> bool {
+    report
+        .removed_images
+        .iter()
+        .any(|image| image.as_str() == docker::BUILDER_IMAGE)
 }
 
 #[tauri::command]
@@ -244,6 +297,19 @@ pub async fn start_build(
     // Validate before cloning a large repository if the selection is impossible.
     target.validate().map_err(|error| error.to_string())?;
 
+    // Full Clean removes the builder image. Re-check it here so the next build
+    // rebuilds it instead of failing with a 404 when Docker creates the container.
+    if requires_builder_image(target.platform) {
+        on_event(BuildEvent::phase(
+            "environment",
+            "Checking builder image...",
+        ));
+        if let Err(error) = ensure_docker_image(&app).await {
+            on_event(BuildEvent::log(format!("Builder image check failed: {error}")));
+            return Err(error);
+        }
+    }
+
     // The saved toggles are authoritative: builds cannot accidentally include
     // Plus/DLC content or a local data copy because of a stale UI value. Older
     // settings files deserialize both flags as false.
@@ -342,7 +408,15 @@ pub async fn full_clean(
         "cleaning",
         "Full Clean started.",
     ));
-    Ok(clean::full_clean(&app, request, &on_event).await)
+    let report = clean::full_clean(&app, request, &on_event).await;
+    if removed_builder_image(&report) {
+        publish_docker_status(
+            &app,
+            "checking",
+            "Builder image was removed by Full Clean; it will be rebuilt on the next build.",
+        );
+    }
+    Ok(report)
 }
 
 fn build_state(app: &tauri::AppHandle) -> Result<Arc<BuildState>, String> {
@@ -495,5 +569,39 @@ mod tests {
         assert_eq!(platform_slug(TargetPlatform::Windows), "windows");
         assert_eq!(architecture_slug(TargetArchitecture::X86_64), "x86-64");
         assert_eq!(format_slug(OutputFormat::AppImage), "appimage");
+    }
+
+    #[test]
+    fn only_container_targets_require_the_builder_image() {
+        assert!(requires_builder_image(TargetPlatform::Windows));
+        assert!(requires_builder_image(TargetPlatform::Linux));
+        assert!(requires_builder_image(TargetPlatform::Android));
+        assert!(!requires_builder_image(TargetPlatform::Macos));
+    }
+
+    #[test]
+    fn full_clean_detects_builder_image_removal() {
+        let empty = CleanReport {
+            removed_paths: Vec::new(),
+            kept_paths: Vec::new(),
+            removed_containers: Vec::new(),
+            removed_images: Vec::new(),
+            warnings: Vec::new(),
+            protected_paths: Vec::new(),
+        };
+        assert!(!removed_builder_image(&empty));
+
+        let cleaned = CleanReport {
+            removed_images: vec![docker::BUILDER_IMAGE.to_owned()],
+            ..empty
+        };
+        assert!(removed_builder_image(&cleaned));
+    }
+
+    #[test]
+    fn docker_stage_messages_cover_check_and_build() {
+        assert!(docker_stage_message("checking").contains("Checking"));
+        assert!(docker_stage_message("building").contains("Building"));
+        assert_eq!(docker_stage_message("ready"), "ready");
     }
 }

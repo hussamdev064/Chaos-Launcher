@@ -520,3 +520,34 @@ Resolved versions and verification results:
             downloaded or installed for this release build. Intended GitHub
             release: https://github.com/hussamdev064/Chaos-Launcher/releases/tag/v0.3.1
             with only the ChaosLauncher_0.3.1_amd64.AppImage asset.
+2026-11-26 — Fixed the post-Full Clean Docker 404 reported by the user. Full
+            Clean now marks the cached Docker status as checking when it removes
+            sonic-mania-builder:latest, and every non-macOS build re-checks and
+            rebuilds the image before creating a container, so the next build no
+            longer fails with "No such image". Startup and build-time checks are
+            serialized to avoid duplicate image builds. Added unit tests for
+            builder-image requirement, removal detection, and status messages.
+            Verification: npm run build passed, cargo check --offline passed,
+            cargo test --offline passed 25 tests with 1 Docker-dependent test
+            ignored, npm run tauri build -- --no-bundle produced the release
+            binary, a 12-second smoke run exited only on timeout (124) with zero
+            stderr bytes, and git diff --check was clean. No tool, package, SDK,
+            or dependency was downloaded or installed, and no game asset was
+            bundled. The subsequent v0.3.2 release of this fix is recorded below.
+2026-11-26 — User approved reviewing, committing, and publishing the Docker 404
+            fix as v0.3.2. Version fields were bumped in package.json,
+            package-lock.json, src-tauri/Cargo.toml, src-tauri/Cargo.lock, and
+            src-tauri/tauri.conf.json. Verification after the bump: npm run
+            build passed, cargo check --offline passed, cargo test --offline
+            passed 25 tests with 1 Docker-dependent test ignored, a full
+            npm run tauri build produced
+            src-tauri/target/release/bundle/appimage/ChaosLauncher_0.3.2_amd64.AppImage
+            (120,568,312 bytes, sha256
+            d83ceeb7196b435aa915da11577af45d8a81c1cba3bb1cae48ad771ae231fffb),
+            a 7z listing of all 611 payload entries found no Data.rsdk, .rsdk,
+            .apk, .exe, .dll, or .deb, and a 12-second smoke run exited only on
+            timeout (124) with zero stderr bytes. The AppImage bundler reused
+            its cached helpers; no tool, package, SDK, or dependency was
+            downloaded or installed for this release build. Intended GitHub
+            release: https://github.com/hussamdev064/Chaos-Launcher/releases/tag/v0.3.2
+            with only the ChaosLauncher_0.3.2_amd64.AppImage asset.
