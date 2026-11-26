@@ -20,8 +20,13 @@ The fetched engine/source code remains governed by its own upstream terms,
 including the RSDKv5 Decompilation License, which is strictly non-commercial.
 Users must consult the license files in the fetched checkout before using or
 redistributing any resulting build. ChaosLauncher does not bundle game assets,
-Data.rsdk files, or prebuilt game binaries. Users must supply their own legally
-obtained Data.rsdk.
+Data.rsdk files, or prebuilt game binaries in its own source, release packages,
+or AppImage. Users must supply their own legally obtained Data.rsdk. A
+default-off Settings option can copy the user's selected file into a generated
+output folder on the user's machine for personal local use only; such outputs
+must not be shared, distributed, or uploaded publicly. The Android port reads
+the user's own Data.rsdk and mods from the device's shared RSDK/v5 directory;
+no game assets are bundled into the APK.
 
                     Vendored Android build sources
 

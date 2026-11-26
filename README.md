@@ -8,7 +8,7 @@ ChaosLauncher is a Tauri + Tailwind desktop launcher that compiles Sonic Mania f
 - The engine and game source fetched at build time come from **RSDKModding** and remain governed by their own upstream terms, including the **RSDKv5 Decompilation License (strictly non-commercial)**. ChaosLauncher does not replace, relicense, or redistribute that source as part of itself.
 - See [`NOTICE`](NOTICE) for the full attribution notice.
 
-ChaosLauncher **never downloads, bundles, copies, or distributes `Data.rsdk` or prebuilt game binaries**. You must supply your own legally obtained copy. The file is selected through a native picker, validated locally, and mounted read-only into the build container solely so the build can read it when needed. Build outputs contain compiled binaries only.
+ChaosLauncher **never downloads, embeds, or distributes `Data.rsdk` or prebuilt game binaries**, and its own source, release bundles, and AppImage never contain game data. You must supply your own legally obtained copy. The file is selected through a native picker, validated locally, and mounted read-only into the build container solely so the build can read it when needed. By default, generated outputs contain compiled binaries only. Settings includes an opt-in (off by default) to copy your selected `Data.rsdk` into the generated output folder on this host for personal local use; never share, distribute, or upload that output. Your original file is never modified or moved.
 
 ## Requirements
 
@@ -26,15 +26,17 @@ ChaosLauncher **never downloads, bundles, copies, or distributes `Data.rsdk` or 
 | Android | ARM64, ARMv7 | `.apk` |
 | macOS | Universal, x86-64, ARM64 | `.app` (native macOS host only) |
 
-ARM64 Windows and Linux targets are intentionally rejected up front because the pinned builder image does not support them. Builds always use `-DRETRO_REVISION=5` and keep Plus data disabled; there is no Plus opt-in in this release.
+ARM64 Windows and Linux targets are intentionally rejected up front because the pinned builder image does not support them. Builds always use `-DRETRO_REVISION=5`. Plus data is disabled by default and can be enabled only through the saved Settings opt-in. Likewise, copying your local `Data.rsdk` into a generated output is off by default and must be opted into in Settings.
 
 ## How it works
 
-1. **Source asset** — the native picker resolves a real path to your `Data.rsdk`. Rust validates the header, reports the file count, size, and SHA-256 for identity, and never copies or uploads the asset.
+1. **Source asset** — the native picker resolves a real path to your `Data.rsdk`. Rust validates the header and reports the file count, size, and SHA-256 for identity. The asset is never uploaded or modified.
 2. **Target** — choose a platform, architecture, and output format. The UI mirrors the backend's supported combinations and disables unavailable targets.
-3. **Build** — the launcher recursively clones the pinned upstream source into its application cache, creates an ephemeral container with the source and asset mounted read-only, compiles the selected target, copies only the chosen artifact(s) to `outputs/<target>-<timestamp>`, and removes the container. Live `::progress::NN` / `::stage::text` lines are streamed into the progress view.
+3. **Build** — the launcher recursively clones the pinned upstream source into its application cache, creates an ephemeral container with the source and asset mounted read-only, compiles the selected target, copies only the chosen artifact(s) to `outputs/<target>-<timestamp>`, and removes the container. If the Settings opt-in is enabled, the launcher then copies your selected `Data.rsdk` from its original host path into that generated output folder (inside the Windows portable folder, or beside other artifacts). It is never embedded in an AppImage, APK, or `.app`. Live `::progress::NN` / `::stage::text` lines are streamed into the progress view, and the activity feed and build summary identify any local data copy.
 
 Android builds use a writable copy of the source and the pinned RSDKv5 Gradle project. The pinned checkout omits some upstream Android dependencies, so verified `libogg` and `libtheora` source tarballs are vendored under `vendor/` and staged into the builder image. They are build inputs only and are never placed in the APK.
+
+The Android port follows the local `~/Downloads/Sonic` runtime layout: the generated APK creates and uses `RSDK/v5` at the shared external storage root (for example `/storage/emulated/0/RSDK/v5`) through SAF tree access. The writable Gradle copy is patched to keep the mod loader on (`-DRETRO_MOD_LOADER=ON`, `-DRETRO_MOD_LOADER_VER=2`), request legacy storage access on Android 10 and all-files access on Android 11+, and load the renamed `SonicMania` engine library. It writes reference-compatible `Settings.ini` and `mods/modconfig.ini` files only when they are missing, so your saves, game data, and enabled mods are never replaced. When the local-data opt-in is enabled, the host also stages an `RSDK/v5` folder beside the APK with your `Data.rsdk`; copy that folder to the device yourself. The APK itself never contains game data.
 
 ## Development
 

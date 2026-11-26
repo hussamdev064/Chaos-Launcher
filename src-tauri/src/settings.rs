@@ -18,6 +18,14 @@ const MANIFEST_FILE: &str = "output-manifest.json";
 #[serde(rename_all = "camelCase")]
 pub struct LauncherSettings {
     pub output_path: Option<String>,
+    /// Opt-in only: older settings files are treated as disabled, which keeps
+    /// `-DRETRO_DISABLE_PLUS=ON` as the launcher's default for legal compliance.
+    #[serde(default)]
+    pub include_plus: bool,
+    /// Local-only convenience: copy the selected Data.rsdk into a generated
+    /// build output on this machine. Never embedded in launcher releases.
+    #[serde(default)]
+    pub include_data_rsdk: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -191,6 +199,30 @@ mod tests {
         assert!(!is_safe_output_child(&root.join("nested/build"), root));
         assert!(!is_safe_output_child(&root.join("Data.rsdk"), root));
         assert!(!is_safe_output_child(Path::new("/home/user/other/build"), root));
+    }
+
+    #[test]
+    fn legacy_settings_default_to_plus_disabled() {
+        let settings: LauncherSettings =
+            serde_json::from_str(r#"{"outputPath":"/home/user/builds"}"#)
+                .expect("legacy settings should still deserialize");
+        assert_eq!(settings.output_path.as_deref(), Some("/home/user/builds"));
+        assert!(!settings.include_plus);
+        assert!(!settings.include_data_rsdk);
+    }
+
+    #[test]
+    fn local_data_copy_opt_in_round_trips() {
+        let settings: LauncherSettings = serde_json::from_str(
+            r#"{"outputPath":"/home/user/builds","includePlus":true,"includeDataRsdk":true}"#,
+        )
+        .expect("current settings should deserialize");
+        let encoded = serde_json::to_string(&settings).expect("settings should serialize");
+        let decoded: LauncherSettings =
+            serde_json::from_str(&encoded).expect("settings should round-trip");
+        assert_eq!(decoded.output_path.as_deref(), Some("/home/user/builds"));
+        assert!(decoded.include_plus);
+        assert!(decoded.include_data_rsdk);
     }
 
     #[test]

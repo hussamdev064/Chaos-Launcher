@@ -297,6 +297,12 @@ input:focus-visible {
   color: #fda4af;
 }
 
+.stat-chip-warning {
+  border-color: #b45309;
+  background: #451a03;
+  color: #fcd34d;
+}
+
 .summary-grid {
   display: grid;
   gap: 8px;
@@ -417,6 +423,29 @@ input:focus-visible {
   line-height: 1.5;
 }
 
+.field-hint.is-error {
+  color: #fb7185;
+}
+
+.field-hint.is-warning {
+  color: #fcd34d;
+}
+
+.warning-box {
+  margin-top: 10px;
+  border: 1px solid #b45309;
+  border-radius: 9px;
+  background: #2a1603;
+  padding: 9px 10px;
+  color: #fcd34d;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.warning-box strong {
+  color: #fde68a;
+}
+
 .clean-layout {
   display: grid;
   gap: 14px;
@@ -497,6 +526,18 @@ input:focus-visible {
   color: #a7f3d0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+}
+
+.result-note {
+  overflow-wrap: anywhere;
+  margin-top: 8px;
+  border: 1px solid #b45309;
+  border-radius: 8px;
+  background: #2a1603;
+  padding: 8px 10px;
+  color: #fcd34d;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .artifact-list {

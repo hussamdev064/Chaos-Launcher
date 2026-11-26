@@ -41,6 +41,10 @@ export interface BuildEventPayload {
 
 export interface LauncherSettings {
   outputPath: string | null;
+  /** Persisted opt-in; false keeps `-DRETRO_DISABLE_PLUS=ON`. */
+  includePlus: boolean;
+  /** Persisted opt-in; false keeps generated outputs free of game data. */
+  includeDataRsdk: boolean;
 }
 
 export interface CleanPlan {
@@ -49,6 +53,7 @@ export interface CleanPlan {
   containers: string[];
   images: string[];
   warnings: string[];
+  protectedPaths: string[];
 }
 
 export interface CleanReport {
@@ -57,12 +62,15 @@ export interface CleanReport {
   removedContainers: string[];
   removedImages: string[];
   warnings: string[];
+  protectedPaths: string[];
 }
 
 export interface BuildResponse {
   outputDirectory: string;
   artifacts: string[];
   assetSha256: string;
+  dataRsdkIncluded: boolean;
+  dataRsdkOutputPath: string | null;
 }
 
 /** Tauri command errors arrive as strings; normalize anything else for display. */

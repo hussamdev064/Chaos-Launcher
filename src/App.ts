@@ -31,6 +31,7 @@ const PHASE_LABELS: Record<string, string> = {
   configuring: "Configuring",
   compiling: "Compiling",
   packaging: "Packaging",
+  "local-data": "Local Data.rsdk copy",
   complete: "Complete",
   cleaning: "Cleaning",
 };
@@ -38,6 +39,7 @@ const PHASE_LABELS: Record<string, string> = {
 const PHASE_TONES: Record<string, ActivityTone> = {
   complete: "success",
   cleaning: "warning",
+  "local-data": "warning",
 };
 
 const DOCKER_BADGE_TONES: Record<DockerStage, string> = {
@@ -55,8 +57,13 @@ interface AppState {
   dockerStatus: DockerStatus | null;
   /** Persisted custom output root; empty means use the managed cache. */
   outputPath: string;
+  /** Persisted opt-in; false keeps `-DRETRO_DISABLE_PLUS=ON`. */
+  includePlus: boolean;
+  /** Persisted opt-in; false keeps game data out of generated outputs. */
+  includeDataRsdk: boolean;
   lastOutputPath: string | null;
   lastArtifacts: string[];
+  lastDataRsdkPath: string | null;
 }
 
 export function mountApp(root: HTMLElement): void {
@@ -72,8 +79,11 @@ export function mountApp(root: HTMLElement): void {
     isMacHost: null,
     dockerStatus: null,
     outputPath: "",
+    includePlus: false,
+    includeDataRsdk: false,
     lastOutputPath: null,
     lastArtifacts: [],
+    lastDataRsdkPath: null,
   };
 
   root.innerHTML = `
@@ -95,6 +105,9 @@ export function mountApp(root: HTMLElement): void {
           </button>
           <button type="button" data-nav="destination" class="nav-item">
             <span class="nav-dot" aria-hidden="true"></span><span>Destination</span>
+          </button>
+          <button type="button" data-nav="settings" class="nav-item">
+            <span class="nav-dot" aria-hidden="true"></span><span>Settings</span>
           </button>
           <button type="button" data-nav="maintenance" class="nav-item">
             <span class="nav-dot" aria-hidden="true"></span><span>Maintenance</span>
@@ -205,10 +218,86 @@ export function mountApp(root: HTMLElement): void {
             </div>
           </section>
 
+          <section class="panel" data-panel="settings" aria-labelledby="settings-heading">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">03 / Preferences</p>
+                <h2 id="settings-heading">Settings</h2>
+              </div>
+              <span data-role="plus-chip" class="stat-chip">Plus disabled</span>
+            </div>
+            <div class="config-grid">
+              <article class="panel-card">
+                <div class="panel-card-head">
+                  <div>
+                    <h3>Compilation</h3>
+                    <p>Optional Plus/DLC content for locally owned installations.</p>
+                  </div>
+                  <span class="card-index">04</span>
+                </div>
+                <label class="checkbox-row">
+                  <input type="checkbox" data-role="plus-toggle" />
+                  <span>
+                    <span class="block text-[13px] font-semibold text-slate-100">Include Plus/DLC content</span>
+                    <span class="mt-1 block text-[11px] leading-relaxed text-slate-400">
+                      Off by default keeps <code class="text-sky-200">-DRETRO_DISABLE_PLUS=ON</code>.
+                      Enable only with legitimate Plus data; builds then use
+                      <code class="text-sky-200">-DRETRO_DISABLE_PLUS=OFF</code>.
+                    </span>
+                  </span>
+                </label>
+                <p data-role="plus-hint" class="field-hint">Loading local settings…</p>
+              </article>
+
+              <article class="panel-card">
+                <div class="panel-card-head">
+                  <div>
+                    <h3>Local game data</h3>
+                    <p>Optional host-only copy of the Data.rsdk you selected.</p>
+                  </div>
+                  <span data-role="data-chip" class="stat-chip">Data copy off</span>
+                </div>
+                <label class="checkbox-row">
+                  <input type="checkbox" data-role="data-toggle" />
+                  <span>
+                    <span class="block text-[13px] font-semibold text-slate-100">Copy my Data.rsdk into the build output</span>
+                    <span class="mt-1 block text-[11px] leading-relaxed text-slate-400">
+                      Off by default, so generated outputs stay clean. The copy is made on this host
+                      after the build; your original file is never modified or moved.
+                    </span>
+                  </span>
+                </label>
+                <p class="warning-box">
+                  <strong>Local use only:</strong> enabling this bundles your own local Data.rsdk into
+                  the built game copy for personal local use only. The resulting file must not be
+                  shared, distributed, or uploaded publicly. ChaosLauncher never downloads, embeds,
+                  or ships game data in its own source, releases, or AppImage.
+                </p>
+                <p data-role="data-hint" class="field-hint">Loading local settings…</p>
+              </article>
+
+              <article class="panel-card">
+                <div class="panel-card-head">
+                  <div>
+                    <h3>Pinned defaults</h3>
+                    <p>Compilation rules this launcher will not change.</p>
+                  </div>
+                  <span class="card-index">06</span>
+                </div>
+                <ul class="clean-list">
+                  <li><span class="text-emerald-300">Always pinned:</span> <code class="text-sky-200">-DRETRO_REVISION=5</code>.</li>
+                  <li><span class="text-sky-300">Android:</span> mod loader v2, shared <code class="text-sky-200">/storage/emulated/0/RSDK/v5</code>, and SAF storage access.</li>
+                  <li><span class="text-sky-300">Destination:</span> managed cache, or the folder chosen under Destination.</li>
+                  <li><span class="text-amber-300">Legal use:</span> supply your own Data.rsdk and any Plus data; nothing is downloaded, and launcher releases contain no game data.</li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
           <section class="panel" data-panel="maintenance" aria-labelledby="maintenance-heading">
             <div class="panel-head">
               <div>
-                <p class="panel-kicker">03 / Maintenance</p>
+                <p class="panel-kicker">04 / Maintenance</p>
                 <h2 id="maintenance-heading">Full Clean</h2>
               </div>
               <span class="stat-chip stat-chip-danger">Confirmation required</span>
@@ -217,11 +306,11 @@ export function mountApp(root: HTMLElement): void {
               <div>
                 <p class="text-sm leading-relaxed text-slate-300">
                   Removes only launcher-created caches, the cached source checkout, generated build
-                  folders, build containers, and the builder image. Nothing is deleted until you
-                  review the exact target list and confirm.
+                  folders (including Android RSDK/v5 staging), build containers, and the builder
+                  image. Nothing is deleted until you review the exact target list and confirm.
                 </p>
                 <ul class="clean-list">
-                  <li><span class="text-emerald-300">Never removed:</span> your Data.rsdk, system files, unrelated folders, Docker sockets, or your custom output folder itself.</li>
+                  <li><span class="text-emerald-300">Never removed:</span> your Data.rsdk, ~/Downloads/Sonic, Android shared storage, system files, unrelated folders, Docker sockets, or your custom output folder itself.</li>
                   <li><span class="text-amber-300">Re-downloaded later:</span> the source checkout and builder image are recreated on the next build.</li>
                 </ul>
               </div>
@@ -246,6 +335,7 @@ export function mountApp(root: HTMLElement): void {
               <span class="stat-chip stat-chip-success">Complete</span>
             </div>
             <p data-role="result-path" class="result-path"></p>
+            <p data-role="result-data-note" class="result-note" hidden></p>
             <ul data-role="result-artifacts" class="artifact-list"></ul>
             <div class="result-actions">
               <button type="button" data-role="open-result" class="toolbar-button toolbar-button-primary">Open build folder</button>
@@ -269,10 +359,17 @@ export function mountApp(root: HTMLElement): void {
   const summaryRuntime = queryRequired<HTMLElement>(root, "[data-role='summary-runtime']");
   const outputInput = queryRequired<HTMLInputElement>(root, "[data-role='output-input']");
   const outputHint = queryRequired<HTMLElement>(root, "[data-role='output-hint']");
+  const plusToggle = queryRequired<HTMLInputElement>(root, "[data-role='plus-toggle']");
+  const plusHint = queryRequired<HTMLElement>(root, "[data-role='plus-hint']");
+  const plusChip = queryRequired<HTMLElement>(root, "[data-role='plus-chip']");
+  const dataToggle = queryRequired<HTMLInputElement>(root, "[data-role='data-toggle']");
+  const dataHint = queryRequired<HTMLElement>(root, "[data-role='data-hint']");
+  const dataChip = queryRequired<HTMLElement>(root, "[data-role='data-chip']");
   const includeCustomInput = queryRequired<HTMLInputElement>(root, "[data-role='include-custom']");
   const cleanReport = queryRequired<HTMLPreElement>(root, "[data-role='clean-report']");
   const resultCard = queryRequired<HTMLElement>(root, "[data-role='result-card']");
   const resultPath = queryRequired<HTMLElement>(root, "[data-role='result-path']");
+  const resultDataNote = queryRequired<HTMLElement>(root, "[data-role='result-data-note']");
   const resultArtifacts = queryRequired<HTMLUListElement>(root, "[data-role='result-artifacts']");
   const buildButton = queryRequired<HTMLButtonElement>(root, "[data-action='build']");
   const openButton = queryRequired<HTMLButtonElement>(root, "[data-action='open']");
@@ -290,6 +387,10 @@ export function mountApp(root: HTMLElement): void {
   let lastActivityKey = "";
   let lastDockerStage: DockerStage | null = null;
   let persistedOutput = "";
+  let persistedIncludePlus = false;
+  let persistedIncludeDataRsdk = false;
+  let settingsLoad: Promise<void> = Promise.resolve();
+  let settingsSave: Promise<void> = Promise.resolve();
 
   function targetLabel(): string {
     const platform = platformOption(state.selection.platform).label;
@@ -310,6 +411,8 @@ export function mountApp(root: HTMLElement): void {
     cleanButton.textContent = state.cleaning ? "Cleaning…" : "Full Clean";
     cleanPanelButton.disabled = locked;
     cleanPanelButton.textContent = state.cleaning ? "Cleaning…" : "Review & clean";
+    plusToggle.disabled = locked;
+    dataToggle.disabled = locked;
     includeCustomInput.disabled = locked;
   }
 
@@ -329,7 +432,27 @@ export function mountApp(root: HTMLElement): void {
 
   function setOutputHint(message: string, isError = false): void {
     outputHint.textContent = message;
-    outputHint.classList.toggle("text-rose-400", isError);
+    outputHint.classList.toggle("is-error", isError);
+  }
+
+  function updateSettingsUi(): void {
+    plusToggle.checked = state.includePlus;
+    plusChip.textContent = state.includePlus ? "Plus included" : "Plus disabled";
+    plusChip.classList.toggle("stat-chip-warning", state.includePlus);
+    plusHint.classList.remove("is-error");
+    plusHint.classList.toggle("is-warning", state.includePlus);
+    plusHint.textContent = state.includePlus
+      ? "Saved locally · builds pass -DRETRO_DISABLE_PLUS=OFF and -DRSDK_AUTOBUILD=0."
+      : "Saved locally · builds keep -DRETRO_DISABLE_PLUS=ON and -DRSDK_AUTOBUILD=1.";
+
+    dataToggle.checked = state.includeDataRsdk;
+    dataChip.textContent = state.includeDataRsdk ? "Local copy on" : "Data copy off";
+    dataChip.classList.toggle("stat-chip-warning", state.includeDataRsdk);
+    dataHint.classList.remove("is-error");
+    dataHint.classList.toggle("is-warning", state.includeDataRsdk);
+    dataHint.textContent = state.includeDataRsdk
+      ? "Saved locally · Data.rsdk is copied beside desktop outputs and staged as RSDK/v5 for Android. Copy it to shared storage on the device yourself; do not share, distribute, or upload it."
+      : "Saved locally · generated outputs contain no game-data copy.";
   }
 
   function renderSource(): void {
@@ -374,6 +497,10 @@ export function mountApp(root: HTMLElement): void {
       return;
     }
     resultPath.textContent = path;
+    resultDataNote.hidden = !state.lastDataRsdkPath;
+    resultDataNote.textContent = state.lastDataRsdkPath
+      ? `Local Data.rsdk included: ${state.lastDataRsdkPath} · personal local use only; do not share, distribute, or upload.`
+      : "";
     resultArtifacts.replaceChildren(
       ...state.lastArtifacts.map((artifact) => {
         const item = document.createElement("li");
@@ -437,27 +564,60 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
-  async function persistOutput(): Promise<void> {
+  async function persistSettings(): Promise<void> {
+    // Local picker/load always resolves first, so a fast toggle cannot overwrite
+    // the output path before it has been read from disk.
+    await settingsLoad;
     const value = outputInput.value.trim();
-    if (value === persistedOutput) {
+    if (
+      value === persistedOutput &&
+      state.includePlus === persistedIncludePlus &&
+      state.includeDataRsdk === persistedIncludeDataRsdk
+    ) {
       return;
     }
     try {
-      await saveSettings({ outputPath: value || null });
+      await saveSettings({
+        outputPath: value || null,
+        includePlus: state.includePlus,
+        includeDataRsdk: state.includeDataRsdk,
+      });
       persistedOutput = value;
+      persistedIncludePlus = state.includePlus;
+      persistedIncludeDataRsdk = state.includeDataRsdk;
       state.outputPath = value;
       setOutputHint(
         value
           ? `Saved locally · builds create timestamped folders in ${value}`
           : "Saved locally · using managed cache outputs",
       );
-      dock.addActivity("Output destination saved", value || "managed cache", "success");
+      updateSettingsUi();
+      dock.addActivity(
+        "Settings saved",
+        [
+          value || "managed cache",
+          state.includePlus ? "Plus/DLC enabled" : "Plus/DLC disabled",
+          state.includeDataRsdk ? "local Data.rsdk copy on" : "local Data.rsdk copy off",
+        ].join(" · "),
+        state.includeDataRsdk ? "warning" : "success",
+      );
       updateSummary();
     } catch (error) {
       const message = errorMessage(error);
+      state.includePlus = persistedIncludePlus;
+      state.includeDataRsdk = persistedIncludeDataRsdk;
+      updateSettingsUi();
       setOutputHint(message, true);
-      dock.addActivity("Could not save output destination", message, "error");
+      plusHint.textContent = `Could not save settings: ${message}`;
+      plusHint.classList.add("is-error");
+      dataHint.textContent = `Could not save settings: ${message}`;
+      dataHint.classList.add("is-error");
+      dock.addActivity("Could not save settings", message, "error");
     }
+  }
+
+  function queueSettingsSave(): void {
+    settingsSave = persistSettings();
   }
 
   async function openPath(path: string | null): Promise<void> {
@@ -485,6 +645,10 @@ export function mountApp(root: HTMLElement): void {
     }
 
     await listenerReady;
+    // The Rust command reads the persisted setting, so wait for any pending
+    // local save before starting the build.
+    await settingsLoad;
+    await settingsSave;
     state.building = true;
     updateToolbar();
     dock.setBusy(true);
@@ -506,6 +670,7 @@ export function mountApp(root: HTMLElement): void {
 
       state.lastOutputPath = response.outputDirectory;
       state.lastArtifacts = response.artifacts;
+      state.lastDataRsdkPath = response.dataRsdkOutputPath ?? null;
       renderResult();
       dock.setPhase("Complete", "Build complete.");
       dock.setProgress(100, "Build complete.");
@@ -513,6 +678,23 @@ export function mountApp(root: HTMLElement): void {
       dock.appendLog(`Artifacts: ${response.artifacts.join(", ") || "(none)"}`);
       if (response.assetSha256) {
         dock.appendLog(`Data.rsdk SHA-256: ${response.assetSha256}`);
+      }
+      if (response.dataRsdkIncluded && response.dataRsdkOutputPath) {
+        dock.addActivity(
+          "Local Data.rsdk included",
+          `${response.dataRsdkOutputPath} · personal local use only; do not share or upload`,
+          "warning",
+        );
+        dock.appendLog(
+          "Data.rsdk included for personal local use only — do not share, distribute, or upload.",
+        );
+        if (state.selection.platform === "android") {
+          dock.appendLog(
+            "Android: copy the staged RSDK folder to /storage/emulated/0/RSDK on the device; the APK contains no game data.",
+          );
+        }
+      } else {
+        dock.addActivity("Data.rsdk copy skipped", "Build output contains no game-data copy", "info");
       }
     } catch (error) {
       const message = errorMessage(error);
@@ -544,6 +726,7 @@ export function mountApp(root: HTMLElement): void {
       planSection("Generated folders in custom output roots", customPaths),
       planSection("Build containers", plan.containers),
       planSection("Builder image", plan.images),
+      planSection("Protected references", plan.protectedPaths),
       planSection("Warnings", plan.warnings),
       "",
       "Never deleted: your original Data.rsdk, system files, unrelated directories, Docker sockets, and the custom output folder itself.",
@@ -560,6 +743,7 @@ export function mountApp(root: HTMLElement): void {
       planSection("Kept custom build folders", report.keptPaths),
       planSection("Removed containers", report.removedContainers),
       planSection("Removed images", report.removedImages),
+      planSection("Protected references", report.protectedPaths),
       planSection("Warnings", report.warnings),
     ].join("\n");
     cleanReport.hidden = false;
@@ -596,6 +780,7 @@ export function mountApp(root: HTMLElement): void {
       if (state.lastOutputPath && report.removedPaths.includes(state.lastOutputPath)) {
         state.lastOutputPath = null;
         state.lastArtifacts = [];
+        state.lastDataRsdkPath = null;
         renderResult();
       }
 
@@ -654,7 +839,8 @@ export function mountApp(root: HTMLElement): void {
           return;
         }
         outputInput.value = picked;
-        await persistOutput();
+        queueSettingsSave();
+        await settingsSave;
       } catch (error) {
         const message = errorMessage(error);
         setOutputHint(message, true);
@@ -665,9 +851,19 @@ export function mountApp(root: HTMLElement): void {
 
   clearOutputButton.addEventListener("click", () => {
     outputInput.value = "";
-    void persistOutput();
+    queueSettingsSave();
   });
-  outputInput.addEventListener("change", () => void persistOutput());
+  outputInput.addEventListener("change", () => queueSettingsSave());
+  plusToggle.addEventListener("change", () => {
+    state.includePlus = plusToggle.checked;
+    updateSettingsUi();
+    queueSettingsSave();
+  });
+  dataToggle.addEventListener("change", () => {
+    state.includeDataRsdk = dataToggle.checked;
+    updateSettingsUi();
+    queueSettingsSave();
+  });
   outputInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       outputInput.blur();
@@ -687,23 +883,39 @@ export function mountApp(root: HTMLElement): void {
   renderSource();
   renderTarget();
   renderResult();
+  updateSettingsUi();
   updateSummary();
 
-  void loadSettings()
+  settingsLoad = loadSettings()
     .then((settings) => {
       const value = settings.outputPath ?? "";
       state.outputPath = value;
       persistedOutput = value;
       outputInput.value = value;
+      state.includePlus = Boolean(settings.includePlus);
+      persistedIncludePlus = state.includePlus;
+      state.includeDataRsdk = Boolean(settings.includeDataRsdk);
+      persistedIncludeDataRsdk = state.includeDataRsdk;
       setOutputHint(
         value
           ? `Loaded from local settings · builds create folders in ${value}`
           : "Loaded from local settings · using managed cache outputs",
       );
+      updateSettingsUi();
       updateSummary();
     })
     .catch((error: unknown) => {
       const message = errorMessage(error);
+      state.includePlus = false;
+      state.includeDataRsdk = false;
+      plusToggle.checked = false;
+      dataToggle.checked = false;
+      plusChip.textContent = "Plus disabled (fallback)";
+      dataChip.textContent = "Data copy off (fallback)";
+      plusHint.textContent = `Settings unavailable: ${message}`;
+      dataHint.textContent = `Settings unavailable: ${message}`;
+      plusHint.classList.add("is-error");
+      dataHint.classList.add("is-error");
       setOutputHint(`Settings unavailable: ${message}`, true);
       dock.addActivity("Settings unavailable", message, "warning");
     });

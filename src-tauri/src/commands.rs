@@ -104,6 +104,9 @@ pub struct BuildResponse {
     pub output_directory: String,
     pub artifacts: Vec<String>,
     pub asset_sha256: String,
+    /// True only when the user opted in to a local-only Data.rsdk copy.
+    pub data_rsdk_included: bool,
+    pub data_rsdk_output_path: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -200,6 +203,8 @@ pub fn save_settings(
                 Ok(path_to_string(&normalized))
             })
             .transpose()?,
+        include_plus: settings.include_plus,
+        include_data_rsdk: settings.include_data_rsdk,
     };
     settings::save_settings(&app, &cleaned)
 }
@@ -239,6 +244,23 @@ pub async fn start_build(
     // Validate before cloning a large repository if the selection is impossible.
     target.validate().map_err(|error| error.to_string())?;
 
+    // The saved toggles are authoritative: builds cannot accidentally include
+    // Plus/DLC content or a local data copy because of a stale UI value. Older
+    // settings files deserialize both flags as false.
+    let saved_settings = settings::load_settings(&app)?;
+    let include_plus = saved_settings.include_plus;
+    let include_data_rsdk = saved_settings.include_data_rsdk;
+    on_event(build::BuildEvent::log(if include_plus {
+        "Plus/DLC content enabled by saved settings."
+    } else {
+        "Plus/DLC content disabled by default."
+    }));
+    on_event(build::BuildEvent::log(if include_data_rsdk {
+        "Local Data.rsdk copy enabled: the selected file will be placed in the build output for personal local use only."
+    } else {
+        "Local Data.rsdk copy disabled by default; build output stays clean."
+    }));
+
     let data_path = PathBuf::from(&request.asset_path);
     let validated = validated_asset(&data_path).await?;
 
@@ -262,6 +284,8 @@ pub async fn start_build(
             source_path,
             data_rsdk_path: data_path,
             output_directory,
+            include_plus,
+            include_data_rsdk,
         },
         &on_event,
     )
@@ -276,6 +300,11 @@ pub async fn start_build(
             .map(|path| path_to_string(path))
             .collect(),
         asset_sha256: validated.sha256,
+        data_rsdk_included: result.data_rsdk_output.is_some(),
+        data_rsdk_output_path: result
+            .data_rsdk_output
+            .as_ref()
+            .map(|path| path_to_string(path)),
     })
 }
 

@@ -84,14 +84,21 @@ impl BuildTarget {
         Ok(())
     }
 
-    /// CMake arguments shared by every CMake-based target. `RETRO_DISABLE_PLUS`
-    /// stays ON so no Plus assets can be pulled in by default. Upstream names the
-    /// engine binary `RSDKv5`, so we override it to a stable `SonicMania` name.
-    pub fn common_cmake_args() -> &'static [&'static str] {
-        &[
+    /// CMake arguments shared by every CMake-based target. Plus content stays
+    /// disabled unless the user explicitly opts in; revision 5 is always pinned.
+    /// Upstream names the engine binary `RSDKv5`, so we override it to a stable
+    /// `SonicMania` name.
+    pub fn common_cmake_args(include_plus: bool) -> Vec<&'static str> {
+        // Kept as an explicit CMake flag so the safe default remains auditable.
+        let disable_plus_arg = if include_plus {
+            "-DRETRO_DISABLE_PLUS=OFF"
+        } else {
+            "-DRETRO_DISABLE_PLUS=ON"
+        };
+        vec![
             "-DCMAKE_BUILD_TYPE=Release",
             "-DRETRO_REVISION=5",
-            "-DRETRO_DISABLE_PLUS=ON",
+            disable_plus_arg,
             "-DWITH_RSDK=ON",
             "-DGAME_STATIC=ON",
             "-DRETRO_OUTPUT_NAME=SonicMania",

@@ -426,3 +426,97 @@ Resolved versions and verification results:
             digest sha256:7fee8eeabc7f8c47a7887ce163384cce18c5f4ac71c139d796fc39b58e469f97,
             matching the local SHA-256. No `.deb`, game assets, or prebuilt game
             binaries were published. No downloads or installs were performed.
+2026-11-26 — User approved adding a dedicated Settings section with a persisted
+            Plus/DLC opt-in. Added `includePlus` to launcher-settings.json with
+            `#[serde(default)]`, so existing settings files keep their output
+            path and older installs remain disabled. The UI toggle saves through
+            the existing native settings command, and `start_build` reads the
+            saved value before generating scripts. Windows/Linux CMake builds
+            now pass `-DRETRO_DISABLE_PLUS=ON` by default or `=OFF` only when
+            opted in; Android and the native macOS Xcode path receive the same
+            explicit flag plus the matching numeric `RSDK_AUTOBUILD` define.
+            `-DRETRO_REVISION=5` remains pinned on every path. Custom output
+            folder persistence and timestamped child-folder behavior are
+            unchanged. Verification: `npm run build` passed (tsc + Vite),
+            `cargo check --offline` passed, `cargo test --offline` passed 18
+            tests with 1 Docker-dependent test ignored, and `npm run tauri build
+            -- --no-bundle` produced the release binary offline. A 12-second
+            smoke run exited only on timeout (124) with no stderr. No tool,
+            package, SDK, or dependency was downloaded or installed; no game
+            asset or prebuilt game binary was bundled. No commit, push, tag, or
+            release was performed for this change.
+2026-11-26 — Added a default-off Settings option to copy the user's locally
+            selected Data.rsdk into the generated build output on the host only.
+            Persisted as `includeDataRsdk` in launcher-settings.json with
+            `#[serde(default)]`; legacy settings keep their values and remain
+            off. The UI shows a permanent local-use-only warning, and the backend
+            (not the build container) copies the selected file after the build,
+            beside normal artifacts and inside the Windows portable folder.
+            The original file is opened read-only and never moved or deleted;
+            an existing destination is never overwritten. No Data.rsdk is
+            embedded in source, release bundles, AppImage, APK, or .app outputs.
+            `-DRETRO_REVISION=5` and the Plus/DLC opt-in behavior are unchanged.
+            Verification: `npm run build` passed, `cargo check --offline`
+            passed, `cargo test --offline` passed 20 tests with 1
+            Docker-dependent test ignored, `npm run tauri build` produced the
+            AppImage, a 7z listing of its 611 payload entries found no
+            Data.rsdk or .rsdk file, and a 12-second smoke run exited only on
+            timeout (124) with no stderr. No commit, push, tag, or release was
+            performed. Download note: an unintended full AppImage bundling step
+            caused Tauri's bundler to fetch standard helper files into
+            ~/.cache/tauri at 15:11 — AppRun-x86_64,
+            linuxdeploy-07333c6-x86_64.AppImage,
+            linuxdeploy-plugin-appimage.AppImage, linuxdeploy-plugin-gtk.sh,
+            and linuxdeploy-plugin-gstreamer.sh. The printed source URLs were
+            https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64,
+            https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage,
+            and
+            https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage.
+            These are bundler helpers only; no game asset or prebuilt game
+            binary was downloaded, and no package/SDK/dependency was installed.
+2026-11-26 — Updated the Android port from the local reference at
+            ~/Downloads/Sonic (capital S; the requested lowercase path does not
+            exist). That folder contains runtime data and an older APK, not a
+            Gradle project; the pinned RSDKv5 Android project and the reference
+            RSDK/v5 Settings.ini/modconfig.ini/log were used to mirror its
+            storage behavior. Android builds now patch only the writable Gradle
+            copy to create/use RSDK/v5 at the shared external storage root, add
+            SAF tree access with primary:RSDK as the picker start and
+            primary:RSDK/v5 as the default, request legacy storage on Android 10
+            and all-files access on Android 11+, keep RETRO_MOD_LOADER=ON with
+            mod loader v2, and load the renamed SonicMania engine library.
+            -DRETRO_REVISION=5, the Plus/RSDK_AUTOBUILD opt-in, and the default
+            off includeDataRsdk setting are unchanged. With the opt-in enabled,
+            Android outputs now stage RSDK/v5/Data.rsdk plus reference-compatible
+            Settings.ini and mods/modconfig.ini on the host, with a hard link at
+            the previous root Data.rsdk path when possible; the original file is
+            never modified and is never put inside the APK. Full Clean now lists
+            protected references, removes managed Android staging caches, and
+            explicitly protects ~/Downloads/Sonic, Android shared storage, and
+            the original Data.rsdk; managed-cache children are no longer shown
+            as kept when their parent outputs root is removed. Verification:
+            npm run build passed, cargo check --offline passed, cargo test
+            --offline passed 22 tests with 1 Docker-dependent test ignored,
+            npm run tauri build -- --no-bundle produced the release binary, a
+            12-second smoke run exited only on timeout (124) with zero stderr
+            bytes, and git diff --check was clean. No tool, package, SDK, or
+            dependency was downloaded or installed, and no Data.rsdk or game
+            asset was bundled. No commit, push, tag, or release was performed.
+2026-11-26 — User approved a local commit plus push/tag/release as v0.3.1 after
+            reviewing the uncommitted Android port and Full Clean changes.
+            Version fields were bumped in package.json, package-lock.json,
+            src-tauri/Cargo.toml, src-tauri/Cargo.lock, and
+            src-tauri/tauri.conf.json. Verification after the bump: npm run
+            build passed, cargo check --offline passed, cargo test --offline
+            passed 22 tests with 1 Docker-dependent test ignored, a full
+            npm run tauri build produced
+            src-tauri/target/release/bundle/appimage/ChaosLauncher_0.3.1_amd64.AppImage
+            (120,556,024 bytes, sha256
+            388d380bc6d7a41d2a827bb7f15a8442e5aca401e0e355f540ac9469a7b5c6c9),
+            a 7z listing of all 611 payload entries found no Data.rsdk, .rsdk,
+            .apk, .exe, or .dll, and a 12-second smoke run exited only on
+            timeout (124) with zero stderr bytes. The AppImage bundler reused
+            its cached helpers; no tool, package, SDK, or dependency was
+            downloaded or installed for this release build. Intended GitHub
+            release: https://github.com/hussamdev064/Chaos-Launcher/releases/tag/v0.3.1
+            with only the ChaosLauncher_0.3.1_amd64.AppImage asset.
