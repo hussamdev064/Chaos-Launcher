@@ -360,3 +360,9 @@ Resolved versions and verification results:
             25-second timeout with no segfault, and 8/8 static checks passed,
             including embedded rootless-socket strings. No game assets or
             prebuilt game binaries were downloaded or published.
+            After user approval, pushed 3c5131f to main, deleted the previous
+            GitHub AppImage asset, uploaded this replacement, and patched the
+            v0.1.0 release body with the new checksum and rootless Docker fix
+            notes. Final API verification showed exactly one uploaded asset
+            whose digest matched the local SHA-256. No downloads or installs
+            were performed.
