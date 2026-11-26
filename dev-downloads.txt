@@ -340,3 +340,23 @@ Resolved versions and verification results:
             AppImage hash is only metadata/mtime related and no GitHub
             re-upload was needed. No Data.rsdk or prebuilt game binary was
             downloaded or published.
+2026-11-26 — User reported `Docker daemon error: Socket not found:
+            /var/run/docker.sock` in the launcher. Root cause: both the startup
+            bootstrap and the build runner used bollard's
+            `connect_with_local_defaults()`, which only checks
+            `/var/run/docker.sock` and ignores rootless Docker. Added a shared
+            `connect_docker()` that honors a non-empty `DOCKER_HOST`, then
+            probes `$XDG_RUNTIME_DIR/docker.sock`, `~/.docker/run/docker.sock`,
+            `/run/docker.sock`, and `/var/run/docker.sock` before falling back.
+            No downloads or installs; `rustfmt` was absent and was not
+            installed. Verification: 13 unit tests passed, the ignored live
+            integration test successfully pinged the rootless daemon at
+            `/run/user/1000/docker.sock`, and a fresh AppImage was built from
+            the current tree with cached tools. Local artifact:
+            src-tauri/target/release/bundle/appimage/ChaosLauncher_0.1.0_amd64.AppImage
+            (130,962,624 bytes, sha256
+            b9224cce31465aa068dc94ea8972567e61d6e610f273d5fd048d1a68c07dc9a8).
+            Verified as ELF64 x86-64, runtime smoke test exited 124 after a
+            25-second timeout with no segfault, and 8/8 static checks passed,
+            including embedded rootless-socket strings. No game assets or
+            prebuilt game binaries were downloaded or published.

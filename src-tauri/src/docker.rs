@@ -5,15 +5,21 @@
 //! The build context is assembled in memory as a tar archive and handed to the
 //! Docker Engine API through `bollard`; no `docker` CLI is required.
 
+use std::env;
 use std::fmt;
+#[cfg(unix)]
+use std::path::PathBuf;
 
 use bollard::errors::Error as DockerApiError;
 use bollard::image::BuildImageOptions;
-use bollard::Docker;
+use bollard::{API_DEFAULT_VERSION, Docker};
 use futures_util::StreamExt;
 
 /// Tag inspected and built on startup.
 pub const BUILDER_IMAGE: &str = "sonic-mania-builder:latest";
+
+/// Bollard's default request timeout; container runs override this separately.
+const CONNECT_TIMEOUT_SECONDS: u64 = 120;
 
 const DOCKERFILE: &str = include_str!("../../Dockerfile");
 const MINGW_TOOLCHAIN: &str = include_str!("../../docker/mingw-x86_64.cmake");
@@ -108,8 +114,51 @@ pub async fn build_image() -> Result<(), BootstrapError> {
     Ok(())
 }
 
+/// Respect `DOCKER_HOST`, then probe common rootless Docker socket locations
+/// before falling back to bollard's `/var/run/docker.sock` default. GUI apps do
+/// not always inherit a shell's `DOCKER_HOST`, so `XDG_RUNTIME_DIR` is the
+/// reliable way to find rootless Docker on Linux desktops.
+pub fn connect_docker() -> Result<Docker, DockerApiError> {
+    if let Ok(host) = env::var("DOCKER_HOST") {
+        if !host.trim().is_empty() {
+            return Docker::connect_with_defaults();
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        let xdg_runtime_dir = env::var("XDG_RUNTIME_DIR").ok();
+        let home = env::var("HOME").ok();
+        for socket in docker_socket_candidates(xdg_runtime_dir.as_deref(), home.as_deref()) {
+            if socket.exists() {
+                return Docker::connect_with_local(
+                    socket.to_string_lossy().as_ref(),
+                    CONNECT_TIMEOUT_SECONDS,
+                    API_DEFAULT_VERSION,
+                );
+            }
+        }
+    }
+
+    Docker::connect_with_local_defaults()
+}
+
 fn connect() -> Result<Docker, BootstrapError> {
-    Docker::connect_with_local_defaults().map_err(|error| BootstrapError::Daemon(error.to_string()))
+    connect_docker().map_err(|error| BootstrapError::Daemon(error.to_string()))
+}
+
+#[cfg(unix)]
+fn docker_socket_candidates(xdg_runtime_dir: Option<&str>, home: Option<&str>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(dir) = xdg_runtime_dir.filter(|dir| !dir.is_empty()) {
+        candidates.push(PathBuf::from(dir).join("docker.sock"));
+    }
+    if let Some(home) = home.filter(|home| !home.is_empty()) {
+        candidates.push(PathBuf::from(home).join(".docker/run/docker.sock"));
+    }
+    candidates.push(PathBuf::from("/run/docker.sock"));
+    candidates.push(PathBuf::from("/var/run/docker.sock"));
+    candidates
 }
 
 /// Docker's build endpoint accepts a tar archive as its body. Keep the files in
@@ -191,5 +240,40 @@ mod tests {
                 assert!(names.iter().any(|name| name == &source), "missing {source}");
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_candidates_include_rootless_locations() {
+        let candidates = docker_socket_candidates(Some("/run/user/1000"), Some("/home/test"));
+        let rendered: Vec<String> = candidates
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
+
+        for expected in [
+            "/run/user/1000/docker.sock",
+            "/home/test/.docker/run/docker.sock",
+            "/run/docker.sock",
+            "/var/run/docker.sock",
+        ] {
+            assert!(
+                rendered.iter().any(|path| path == expected),
+                "missing {expected}"
+            );
+        }
+    }
+
+    /// Manual integration check: `cargo test -- --ignored` while rootless
+    /// Docker is running. Kept ignored so the unit suite needs no daemon.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore = "requires a running Docker daemon"]
+    async fn connect_docker_pings_local_daemon() {
+        connect_docker()
+            .expect("local Docker socket should be discovered")
+            .ping()
+            .await
+            .expect("local Docker daemon should answer ping");
     }
 }

@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 
 use super::script::BuildPaths;
 use super::{BuildError, BuildEvent, EventSink};
-use crate::docker::BUILDER_IMAGE;
+use crate::docker::{connect_docker, BUILDER_IMAGE};
 
 const CONTAINER_SOURCE: &str = "/work/source";
 const CONTAINER_DATA: &str = "/work/Data.rsdk";
@@ -58,7 +58,7 @@ pub async fn run_container(
     mounts: &ContainerMounts,
     on_event: &EventSink,
 ) -> Result<(), BuildError> {
-    let docker = Docker::connect_with_local_defaults()
+    let docker = connect_docker()
         .map_err(|error| BuildError::Docker(error.to_string()))?
         // Builds can legitimately run far longer than bollard's 2-minute default.
         .with_timeout(Duration::from_secs(6 * 60 * 60));
