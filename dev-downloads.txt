@@ -417,3 +417,12 @@ Resolved versions and verification results:
             562 payload files, 0 Data.rsdk/game-binary files, LICENSE/NOTICE/
             README and desktop entry present. No game assets or prebuilt game
             binaries were bundled.
+            Local commit 6e5290d was pushed to origin/main, annotated tag
+            v0.2.0 was pushed (tag object c7dbc69 -> 6e5290d), and GitHub
+            release 459263518 was published at
+            https://github.com/hussamdev064/Chaos-Launcher/releases/tag/v0.2.0.
+            Final API verification showed exactly one uploaded asset,
+            ChaosLauncher_0.2.0_amd64.AppImage (131,097,792 bytes), with GitHub
+            digest sha256:7fee8eeabc7f8c47a7887ce163384cce18c5f4ac71c139d796fc39b58e469f97,
+            matching the local SHA-256. No `.deb`, game assets, or prebuilt game
+            binaries were published. No downloads or installs were performed.
