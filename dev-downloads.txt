@@ -322,3 +322,21 @@ Resolved versions and verification results:
             whose digest matches the local SHA-256. `bundle.targets` was set to
             ["appimage"] and the local generated .deb was removed. No game
             assets or prebuilt game binaries were downloaded or published.
+2026-11-26 — User requested an x86_64 Linux AppImage build. Rebuilt from the
+            current tree using local Node/npm and Cargo caches only; no
+            downloads or installs. `bundle.targets` is now ["appimage"], so the
+            Tauri command produced only the AppImage target. The cached
+            linuxdeploy still required the local host-strip patch to complete,
+            after which 191 bundled ELF libraries were restored from their
+            unmodified source copies and the final AppImage was assembled with
+            the cached appimagetool. Local artifact:
+            src-tauri/target/release/bundle/appimage/ChaosLauncher_0.1.0_amd64.AppImage
+            (130,983,104 bytes, sha256
+            e9563e081212b110fe073e0dd812ca0fdd2f520e7423d481d8db8463e3d47996).
+            Verified as ELF64 x86-64; runtime smoke test exited 124 after a
+            25-second timeout with no segfault; 7/7 static checks passed.
+            Extracted payload comparison showed all 611 entries byte-identical
+            to the published GitHub asset (18c1488c...), so the different
+            AppImage hash is only metadata/mtime related and no GitHub
+            re-upload was needed. No Data.rsdk or prebuilt game binary was
+            downloaded or published.
