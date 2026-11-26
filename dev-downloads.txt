@@ -265,3 +265,30 @@ Resolved versions and verification results:
             so Git push and the GitHub REST API via local `curl` will be used
             instead of installing `gh`. No game assets or prebuilt game binaries
             are being published.
+2026-11-26 — Git initialization, push, tag, and GitHub release completed with
+            no downloads and no tool installation. Local history: root commit
+            58a0b2d added the current tree, then merge commit 885139a combined
+            it with the pre-existing remote README commit d3574ea while keeping
+            this project's README.md. Annotated tag v0.1.0 points to commit
+            885139a637eb09ce2b671a2af6fe82a7774dd107. `git push -u origin main`
+            and `git push origin v0.1.0` succeeded against
+            https://github.com/hussamdev064/Chaos-Launcher using the stored
+            Git credential (authenticated as hussamdev064 with `repo` scope);
+            warnings from a stale gh credential-helper path were harmless and
+            no manual authentication was needed. `gh` remained absent and no
+            tool was installed. Release 459135322 was created through the
+            GitHub REST API with local `curl`:
+            https://github.com/hussamdev064/Chaos-Launcher/releases/tag/v0.1.0
+            (public, not a draft, not a prerelease). Both assets uploaded with
+            state=uploaded: ChaosLauncher_0.1.0_amd64.deb (8,569,308 bytes,
+            sha256
+            6433aaece23ebfdd106881bd78975b30c0bd2fe5fa0cebf2043aab8e0f960e09,
+            https://github.com/hussamdev064/Chaos-Launcher/releases/download/v0.1.0/ChaosLauncher_0.1.0_amd64.deb)
+            and ChaosLauncher_0.1.0_amd64.AppImage (120,351,224 bytes, sha256
+            47ed748ca4904d83ba5e61b521349be448a8a765cb68589f36e18e6572b41a1c,
+            https://github.com/hussamdev064/Chaos-Launcher/releases/download/v0.1.0/ChaosLauncher_0.1.0_amd64.AppImage).
+            The release body records the checksums, verification summary,
+            legal/asset constraints, and platform notes. No Data.rsdk,
+            prebuilt game binary, SDK, package, or tool was downloaded or
+            published. A follow-up docs-only commit records these results on
+            main; the release tag remains at the v0.1.0 commit.
