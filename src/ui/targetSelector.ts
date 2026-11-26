@@ -1,0 +1,216 @@
+import { queryRequired } from "./dom";
+import type { OutputFormat, TargetArchitecture, TargetPlatform } from "../types";
+
+export interface FormatOption {
+  id: OutputFormat;
+  label: string;
+  hint: string;
+}
+
+export interface PlatformOption {
+  id: TargetPlatform;
+  label: string;
+  hint: string;
+  architectures: TargetArchitecture[];
+  formats: FormatOption[];
+  requiresMacHost: boolean;
+}
+
+const ARCHITECTURE_LABELS: Record<TargetArchitecture, string> = {
+  x86_64: "x86-64",
+  aarch64: "ARM64",
+  armv7: "ARMv7",
+  universal: "Universal",
+};
+
+/** UI mirror of supported combinations; Rust validates every build again before it starts. */
+export const PLATFORM_OPTIONS: readonly PlatformOption[] = [
+  {
+    id: "windows",
+    label: "Windows",
+    hint: "MinGW cross-build",
+    architectures: ["x86_64"],
+    formats: [
+      { id: "exe", label: "Standalone .exe", hint: "Single executable" },
+      { id: "portable", label: "Portable folder", hint: "Executable + DLLs (no game data)" },
+    ],
+    requiresMacHost: false,
+  },
+  {
+    id: "linux",
+    label: "Linux",
+    hint: "SDL2 / GLEW build",
+    architectures: ["x86_64"],
+    formats: [
+      { id: "elf", label: "ELF binary", hint: "Plain executable" },
+      { id: "appimage", label: ".AppImage", hint: "Portable Linux bundle" },
+    ],
+    requiresMacHost: false,
+  },
+  {
+    id: "android",
+    label: "Android",
+    hint: "Gradle / NDK build",
+    architectures: ["aarch64", "armv7"],
+    formats: [{ id: "apk", label: ".apk", hint: "Installable package" }],
+    requiresMacHost: false,
+  },
+  {
+    id: "macos",
+    label: "macOS",
+    hint: "Native host only",
+    architectures: ["universal", "x86_64", "aarch64"],
+    formats: [{ id: "app", label: ".app bundle", hint: "Native macOS bundle" }],
+    requiresMacHost: true,
+  },
+];
+
+export function platformOption(id: TargetPlatform): PlatformOption {
+  const option = PLATFORM_OPTIONS.find((candidate) => candidate.id === id);
+  if (!option) {
+    throw new Error(`Unknown target platform: ${id}`);
+  }
+  return option;
+}
+
+export function formatOption(platform: TargetPlatform, format: OutputFormat): FormatOption | undefined {
+  return platformOption(platform).formats.find((candidate) => candidate.id === format);
+}
+
+/**
+ * Fallback when the Tauri host-platform command is unavailable (e.g. plain
+ * browser preview). In the packaged app the backend's `std::env::consts::OS`
+ * value is authoritative.
+ */
+export function isMacHost(): boolean {
+  return /Mac/i.test(navigator.userAgent);
+}
+
+export function defaultsForPlatform(id: TargetPlatform): {
+  architecture: TargetArchitecture;
+  format: OutputFormat;
+} {
+  const option = platformOption(id);
+  return {
+    architecture: option.architectures[0],
+    format: option.formats[0].id,
+  };
+}
+
+export interface TargetSelectorOptions {
+  platform: TargetPlatform;
+  architecture: TargetArchitecture;
+  format: OutputFormat;
+  /** Authoritative host OS from Rust; falls back to user-agent detection. */
+  isMacHost?: boolean;
+  onChange: (platform: TargetPlatform, architecture: TargetArchitecture, format: OutputFormat) => void;
+}
+
+export function renderTargetSelector({
+  platform,
+  architecture,
+  format,
+  isMacHost: macHostOverride,
+  onChange,
+}: TargetSelectorOptions): HTMLElement {
+  const current = platformOption(platform);
+  const macHost = macHostOverride ?? isMacHost();
+  const section = document.createElement("section");
+
+  section.innerHTML = `
+    <div class="mb-5">
+      <h2 class="text-2xl font-semibold tracking-tight">Choose your target</h2>
+      <p class="mt-1 text-sm text-slate-400">Platform, CPU architecture, and output format.</p>
+    </div>
+
+    <div class="grid gap-3 sm:grid-cols-2" data-role="platforms">
+      ${PLATFORM_OPTIONS.map(
+        (option) => `
+          <button type="button" data-platform="${option.id}"
+                  ${option.requiresMacHost && !macHost ? "disabled aria-disabled=\"true\"" : `aria-pressed="${option.id === platform}"`}
+                  class="rounded-2xl border p-4 text-left transition ${
+                    option.id === platform
+                      ? "border-sky-500 bg-sky-500/10"
+                      : "border-slate-800 bg-slate-900/50 hover:border-slate-600"
+                  } ${option.requiresMacHost && !macHost ? "cursor-not-allowed opacity-40" : ""}">
+            <span class="block font-medium">${option.label}</span>
+            <span class="mt-1 block text-xs text-slate-400">${
+              option.requiresMacHost && !macHost ? "Requires a macOS host" : option.hint
+            }</span>
+          </button>`,
+      ).join("")}
+    </div>
+
+    <div class="mt-7">
+      <h3 class="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">Architecture</h3>
+      <div class="flex flex-wrap gap-2" data-role="architectures">
+        ${current.architectures
+          .map(
+            (option) => `
+              <button type="button" data-architecture="${option}" aria-pressed="${option === architecture}"
+                      class="rounded-xl border px-4 py-2 text-sm transition ${
+                        option === architecture
+                          ? "border-sky-500 bg-sky-500/10 text-sky-200"
+                          : "border-slate-800 bg-slate-900/50 text-slate-300 hover:border-slate-600"
+                      }">${ARCHITECTURE_LABELS[option]}</button>`,
+          )
+          .join("")}
+      </div>
+    </div>
+
+    <div class="mt-7">
+      <h3 class="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">Output format</h3>
+      <div class="grid gap-3 sm:grid-cols-2" data-role="formats">
+        ${current.formats
+          .map(
+            (option) => `
+              <button type="button" data-format="${option.id}" aria-pressed="${option.id === format}"
+                      class="rounded-2xl border p-4 text-left transition ${
+                        option.id === format
+                          ? "border-sky-500 bg-sky-500/10"
+                          : "border-slate-800 bg-slate-900/50 hover:border-slate-600"
+                      }">
+                <span class="block font-medium">${option.label}</span>
+                <span class="mt-1 block text-xs text-slate-400">${option.hint}</span>
+              </button>`,
+          )
+          .join("")}
+      </div>
+    </div>
+
+    ${
+      macHost
+        ? ""
+        : `<p class="mt-6 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-200">
+             macOS builds require a macOS host: Apple SDK restrictions make Linux container cross-compilation unreliable.
+           </p>`
+    }
+  `;
+
+  section.querySelectorAll<HTMLButtonElement>("[data-platform]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.disabled) {
+        return;
+      }
+      const nextPlatform = button.dataset.platform as TargetPlatform;
+      const defaults = defaultsForPlatform(nextPlatform);
+      onChange(nextPlatform, defaults.architecture, defaults.format);
+    });
+  });
+
+  section.querySelectorAll<HTMLButtonElement>("[data-architecture]").forEach((button) => {
+    button.addEventListener("click", () => {
+      onChange(platform, button.dataset.architecture as TargetArchitecture, format);
+    });
+  });
+
+  section.querySelectorAll<HTMLButtonElement>("[data-format]").forEach((button) => {
+    button.addEventListener("click", () => {
+      onChange(platform, architecture, button.dataset.format as OutputFormat);
+    });
+  });
+
+  // Keep the step heading reachable for assistive tech after a re-render.
+  queryRequired<HTMLElement>(section, "h2").setAttribute("tabindex", "-1");
+  return section;
+}

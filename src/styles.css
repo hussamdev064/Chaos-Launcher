@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/* Small additions that are awkward to express as utility classes. */
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+}
+
+.drop-zone-active {
+  border-color: #38bdf8;
+  background-color: rgb(14 165 233 / 0.08);
+}
+
+.log-drawer > summary {
+  list-style: none;
+}
+
+.log-drawer > summary::-webkit-details-marker {
+  display: none;
+}

@@ -1,0 +1,267 @@
+ChaosLauncher development download log
+
+Rule: record every tool, package, SDK, or dependency downloaded for development here,
+with the date and a short reason. Ask for approval before each download.
+
+2026-11-25 — Approved by user for the Phase 5 verification pass.
+2026-11-25 — Docker rootless installer script from https://get.docker.com/rootless
+            (commit 8ad27bd3ac871feabe62f1d926c4067800c1732f) downloaded to
+            /tmp/opencode/docker-rootless-install.sh for a user-local Docker install.
+2026-11-25 — Node.js v26.13.1 Linux x64 official binary tarball from nodejs.org,
+            SHA-256 verified against SHASUMS256.txt and installed under
+            ~/.local/v26.13.1 for npm/Vite/TypeScript checks.
+2026-11-25 — rustup installer from sh.rustup.rs plus the stable Rust/Cargo toolchain,
+            to be installed under ~/.cargo and ~/.rustup for cargo check/test.
+2026-11-25 — Docker Engine static binaries and rootless extras v29.10.1 from
+            download.docker.com, to be installed under ~/bin by the rootless script
+            for the Docker smoke build/check.
+2026-11-25 — npm project dependencies from the npm registry, pinned by package-lock.json,
+            for `npm run build`.
+2026-11-25 — Cargo crates from crates.io, pinned by Cargo.lock, for `cargo check`/`cargo test`.
+2026-11-25 — Fedora x86_64 WebKit2GTK 4.1, GTK3, appindicator, and dependency RPMs
+            from enabled dnf repositories, downloaded with `dnf download --resolve --alldeps`
+            into /tmp/opencode/rpms and extracted to ~/.local/chaoslauncher-sysdeps because
+            system installation requires a password-protected sudo. Needed by Tauri's
+            Linux build scripts (`glib-sys`, `webkit2gtk-sys`, GTK).
+2026-11-25 — Docker registry layers and in-build downloads for `docker build`
+            (ubuntu:22.04, dockerfile frontend, apt packages, Android NDK/SDK,
+            Gradle, appimagetool) for the Docker smoke build/check.
+
+Resolved versions and verification results:
+2026-11-25 — Node.js v26.13.1 / npm 11.20.0; npm install added 39 packages and
+            generated package-lock.json; `npm run build` passed.
+2026-11-25 — rustup stable 1.100.0 (rustc 1.100.0 0ef1bc386, cargo 1.100.0
+            3acc79c0c); Cargo.lock has 480 locked dependencies plus the root crate;
+            `cargo check` passed and `cargo test` passed 11 tests.
+2026-11-25 — Docker Engine/rootless extras 29.10.1 (build c48360f, installer
+            commit 8ad27bd3ac871feabe62f1d926c4067800c1732f). Built
+            sonic-mania-builder:latest and smoke-checked the toolchain. The current
+            final builder image, including the later Android vendored-dependency
+            fix, is
+            sha256:7bb655325b64e93ba9ea6a820789ca546d33778a6647c5fcbaad2751c7009d7c
+            (6,238,856,826 bytes).
+2026-11-25 — Docker build downloads resolved to ubuntu:22.04 base layers,
+            docker/dockerfile:1 frontend, apt packages including OpenJDK 17.0.21.1,
+            Android NDK r25c (Pkg.Revision 25.2.9519653), Android command-line tools
+            revision 11076708, platform-tools, android-34, build-tools 34.0.0,
+            Gradle 8.6, and appimagetool continuous. Smoke check found cmake 3.22.1,
+            ninja 1.10.1, git 2.34.1, MinGW GCC 10-win32 20220113, SDL2 2.0.20,
+            GLEW 2.2.0, Ogg 1.3.5, Vorbisfile 1.3.7, sdkmanager, and appimagetool.
+2026-11-25 — 596 Fedora RPM files downloaded; 595 extracted to
+            ~/.local/chaoslauncher-sysdeps (the filesystem-* RPM was skipped).
+            pkg-config resolved glib-2.0 2.88.4, gtk+-3.0 3.24.52,
+            webkit2gtk-4.1 2.54.2, and libsoup-3.0 3.6.6.
+2026-11-26 — Recursive clone of the upstream RSDKModding/Sonic-Mania-Decompilation
+            source (including the RSDKv5 submodule) into
+            ~/.cache/com.chaoslauncher.app for the approved end-to-end Linux
+            x86-64 ELF compile. This is engine/game source only; no game assets
+            or prebuilt binaries were downloaded. The user's local Data.rsdk was
+            used in place through a read-only bind mount and was not copied.
+2026-11-26 — Ubuntu 22.04 libtheora-dev (1.1.1+dfsg.1-15ubuntu4) added to the
+            builder image after CMake reported that the pinned engine's bundled
+            Theora fallback source tree is absent; downloaded during the
+            approved Docker image rebuild.
+2026-11-26 — End-to-end Linux x86-64 ELF compile succeeded at source commit
+            9dc699428420d752af9767bdb13f585ee0881bc0 (RSDKv5 submodule
+            bd5939658fa9987bd2d4384799cacd57aa432eec) using the user's local
+            Data.rsdk (sha256 6375e8fa2b053e21b3b288c1532ac8384e9b9b87ae2583efaa741b355916ce65)
+            through a read-only mount. Artifact:
+            ~/.cache/com.chaoslauncher.app/outputs/linux-x86-64-elf-1795638238442527885/SonicMania
+            (5,790,784-byte x86-64 ELF). No Data.rsdk was copied into the output,
+            the source tree stayed clean, and the build container was removed.
+2026-11-26 — User approved additional source downloads for the Windows x86-64
+            portable verification. libogg 1.3.5 and libtheora 1.1.1 source
+            tarballs from downloads.xiph.org are built into the Docker image as
+            MinGW static libraries with CMake config files. Verified SHA-256:
+            libogg-1.3.5.tar.gz = 0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664
+            libtheora-1.1.1.tar.gz = 40952956c47811928d1e7922cda3bc1f427eb75680c3c37249c91e949054916b
+            No game assets or prebuilt game binaries are downloaded.
+2026-11-26 — End-to-end Windows x86-64 portable compile succeeded at source commit
+            9dc699428420d752af9767bdb13f585ee0881bc0 using the user's local
+            Data.rsdk (sha256 6375e8fa2b053e21b3b288c1532ac8384e9b9b87ae2583efaa741b355916ce65)
+            through a read-only mount. Artifact:
+            ~/.cache/com.chaoslauncher.app/outputs/windows-x86-64-portable-1795642191088790353/SonicMania-portable/SonicMania.exe
+            (8,906,146-byte PE32+ GUI x86-64). The portable folder contains only
+            the executable; no Data.rsdk was copied, the source tree stayed
+            clean, and the build container was removed. Compatibility fixes in
+            this pass were MinGW header/library casing links, the timeapi.h
+            alias, -fpermissive for an upstream function-pointer conversion, and
+            explicit MinGW C++ standard libraries for DirectX/XAudio imports.
+2026-11-26 — User approved installing Ubuntu `file` in the builder image because
+            appimagetool requires it to classify the bundled ELF while creating
+            the AppImage. Installed version: file-5.41 (1:5.41-3ubuntu0.1).
+            This is a build tool only; no game assets or prebuilt game binaries
+            are downloaded.
+2026-11-26 — End-to-end Linux x86-64 AppImage compile succeeded at source commit
+            9dc699428420d752af9767bdb13f585ee0881bc0 using the user's local
+            Data.rsdk (sha256 6375e8fa2b053e21b3b288c1532ac8384e9b9b87ae2583efaa741b355916ce65)
+            through a read-only mount. Artifact:
+            ~/.cache/com.chaoslauncher.app/outputs/linux-x86-64-appimage-1795643438718817472/SonicMania-x86_64.AppImage
+            (2,712,768 bytes, sha256 bf1d2dcea50b408b71cdfe995c85d79abe29804255b6456f11d907e55aad98a0).
+            Extracted AppImage contains only usr/bin/SonicMania, AppRun, a 1x1
+            generated icon, a generated desktop file, and its DirIcon symlink.
+            The embedded ELF hash matches the earlier Linux ELF artifact. No
+            Data.rsdk, .rsdk, .exe, .dll, .apk, .app, .pak, .pk3, or .zip is
+            bundled; the Data.rsdk string in the binary is only the runtime
+            lookup name. The source tree stayed clean and the container was
+            removed. appimagetool emitted a non-fatal AppStream metadata warning.
+2026-11-26 — User approved required Android downloads. Gradle 8.2 wrapper and
+            216 Gradle/Maven modules (AGP 8.2.1, AndroidX, Oboe, Glide, build
+            tools) were cached under ~/.cache/com.chaoslauncher.app/gradle-cache
+            (1.2 GB) via a new read-write /root/.gradle mount. An earlier build
+            auto-installed Android SDK Platform 33 into the ephemeral container;
+            the final build script pins compile/target SDK 34, so no further SDK
+            download is expected on a fresh image. No game assets or prebuilt
+            game binaries were downloaded.
+2026-11-26 — Android arm64 APK build succeeded through the real backend at
+            source commit 9dc699428420d752af9767bdb13f585ee0881bc0 using the
+            user's local Data.rsdk (sha256
+            6375e8fa2b053e21b3b288c1532ac8384e9b9b87ae2583efaa741b355916ce65)
+            through a read-only mount. Artifact:
+            ~/.cache/com.chaoslauncher.app/outputs/android-arm64-apk-1795644452816356546/SonicMania.apk
+            (2,740,151 bytes, sha256
+            1a0b07836b9273928b3c0341466b545d39c634e39b6b8966a2db2d9d149f0641).
+            The APK has 411 entries and contains no Data.rsdk, .rsdk, .exe,
+            .dll, .pak, .pk3, .zip, or .app. It is signed with the upstream
+            release key (CN=Retro Engine). The asset hash was unchanged, the
+            source tree stayed clean, and the container was removed.
+            The pinned project requests NDK 24 but the image supplies r25c; the
+            writable Gradle copy was patched to the installed revision to avoid
+            an NDK download. Build issue: the APK has no lib/arm64-v8a/*.so and
+            therefore no native game engine. The pinned Android module's jni
+            directory has no native sources or prebuilt libraries, its CMake
+            project generates no targets, and RETRO_REVISION/RETRO_DISABLE_PLUS
+            are reported unused. The APK is a Java wrapper plus Android support
+            libraries, not a playable game; a follow-up must wire the engine
+            sources into the Android native build without bundling game assets.
+2026-11-26 — User approved re-downloading the previously approved libogg 1.3.5
+            source to fix the missing native dependency. Verified SHA-256:
+            libogg-1.3.5.tar.gz =
+            0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664.
+            The verified libogg and libtheora tarballs are vendored under
+            vendor/ and extracted into the builder image at
+            /opt/android-deps/{libogg,libtheora}; no game assets or prebuilt
+            game binaries are included. The final image rebuild reused cached
+            layers and performed no new downloads.
+2026-11-26 — Android arm64 APK with compiled native engine succeeded through the
+            real backend at source commit
+            9dc699428420d752af9767bdb13f585ee0881bc0 using the user's local
+            Data.rsdk (sha256
+            6375e8fa2b053e21b3b288c1532ac8384e9b9b87ae2583efaa741b355916ce65)
+            through a read-only mount. Artifact:
+            ~/.cache/com.chaoslauncher.app/outputs/android-arm64-apk-native-1795645874679724517/SonicMania.apk
+            (5,684,378 bytes, sha256
+            1f759f7156faaf86e40766ced70c989493bca0ba6b732480e74026a5047a2543).
+            The APK has 414 entries, including arm64-v8a libSonicMania.so
+            (6,470,832 bytes, built by NDK r25c, sha256
+            02dc4800ddc3e1d01aa6a6eda4d5e1d3ed9c5444e5ee2869afb633349714dd50),
+            libc++_shared.so, and the Oboe AAR library. libSonicMania.so exports
+            android_main, GameActivity_onCreate, RSDK_main, and RSDK symbols.
+            No Data.rsdk, .rsdk, .exe, .dll, .pak, .pk3, .zip, or .app is
+            bundled; the Data.rsdk string in the engine is only the runtime
+            lookup name. The writable source copy builds Game + RSDKv5 with
+            -DGAME_STATIC=ON, -DWITH_RSDK=ON, -DRETRO_REVISION=5, and
+            -DRETRO_DISABLE_PLUS=true; compile/target SDK 34 avoids another SDK
+            download. Gradle deprecation, duplicate AndroidX namespace, miniz
+            large-file pragma, and ndk.dir warnings are non-fatal. The asset
+            hash was unchanged, the source tree stayed clean, and the container
+            was removed.
+2026-11-26 — Release-readiness blockers fixed with no downloads. The embedded
+            Docker build context now includes the vendored libtheora and libogg
+            tarballs, and its test checks every `COPY vendor/...` line in the
+            embedded Dockerfile. A full GPLv3 LICENSE (sha256
+            8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903)
+            was copied from an existing local system license file; README.md
+            and NOTICE were added with RSDKModding and non-commercial RSDKv5
+            Decompilation License credits, user-supplied Data.rsdk terms, and
+            vendored dependency hashes. Tauri bundling now includes LICENSE,
+            README.md, and NOTICE. UI target options were aligned with backend
+            validation (Windows/Linux x86-64 only; macOS universal/x86-64/ARM64)
+            and progress copy now distinguishes native macOS Xcode builds.
+            Offline npm build, cargo check, and cargo test passed (12 tests,
+            0 failures); 29 release-audit static checks passed. No game assets,
+            prebuilt binaries, packages, SDK components, or other downloads
+            were fetched.
+2026-11-26 — Packaged-install smoke test passed with no downloads. A context
+            containing only the four embedded files rebuilt the builder image
+            with `--network=none --pull=false`, reusing cached layers and
+            producing sha256:7bb655325b64e93ba9ea6a820789ca546d33778a6647c5fcbaad2751c7009d7c.
+            After temporarily removing the tag, a throwaway unit test drove the
+            real `ensure_builder_image` bootstrap with network-disabled build
+            options and observed status Built with stages
+            ["checking", "building"]; the ready stage is published by the
+            caller immediately afterward. The temporary code, tag backup, and
+            context directory were removed. An offline `tauri build --bundles deb`
+            produced ChaosLauncher_0.1.0_amd64.deb (8,560,534 bytes, sha256
+            62803bd460497db30b0224355d569351dc304cf5dd480719aa3af7c3128b24b9).
+            Bundle inspection confirmed byte-identical LICENSE, README.md, and
+            NOTICE under usr/lib/ChaosLauncher/_up_, plus the launcher binary
+            and desktop file. No Data.rsdk, .rsdk, .exe, .dll, .pak, .pk3,
+            .zip, .app, SonicMania binary, or shared-library game payload is
+            present. Final offline cargo check/test passed (12 tests, 0 failures)
+            and no build containers remain.
+2026-11-26 — Final release sign-off: no temporary harness/extraction directories
+            remain, no Data.rsdk or prebuilt game binary is present in the project
+            tree, recorded hashes matched the files and artifacts present at that
+            time, the upstream checkout is clean at commit
+            9dc699428420d752af9767bdb13f585ee0881bc0, the asset hash is unchanged,
+            only the sonic-mania-builder:latest image tag remains, and no build
+            containers remain. Package/Rust/Tauri versions are aligned at 0.1.0.
+            The tree is ready to tag v0.1.0; this working directory is not a git
+            repository, so no tag, commit, or push was created.
+2026-11-26 — Linux desktop build requested with AppImage included. No downloads
+            were performed. Reused local Node/npm and Cargo caches and the
+            extracted Fedora sysdeps at ~/.local/chaoslauncher-sysdeps for
+            glib/GTK/WebKit pkg-config. Tauri CLI 2.12.6 (bundler 2.10.6) built
+            and bundled both Linux targets offline. Added `bundle.icon` to
+            src-tauri/tauri.conf.json using the existing PNG icons because the
+            AppImage bundler requires an explicit square icon. A local HTTP
+            mirror (TAURI_BUNDLER_TOOLS_GITHUB_MIRROR) served cached local
+            copies of AppRun, linuxdeploy, and its GTK/GStreamer hooks; the
+            AppImage plugin download was intentionally blocked and Tauri used
+            its built-in fallback. The cached linuxdeploy AppImage's bundled
+            `strip` was replaced with the host GNU strip 2.46.1 because the old
+            bundled strip could not handle `.relr.dyn` sections in modern
+            shared libraries. Final artifacts:
+            src-tauri/target/release/bundle/deb/ChaosLauncher_0.1.0_amd64.deb
+            (8,569,308 bytes, sha256
+            6433aaece23ebfdd106881bd78975b30c0bd2fe5fa0cebf2043aab8e0f960e09)
+            and
+            src-tauri/target/release/bundle/appimage/ChaosLauncher_0.1.0_amd64.AppImage
+            (120,351,224 bytes, sha256
+            47ed748ca4904d83ba5e61b521349be448a8a765cb68589f36e18e6572b41a1c).
+            These supersede the earlier smoke-test deb size/hash. Verification
+            passed 13/13 checks: both bundles contain byte-identical LICENSE,
+            README.md, and NOTICE, the launcher binary and AppRun are executable,
+            all launcher NEEDED libraries resolve, and neither bundle contains
+            Data.rsdk, .rsdk, .exe, .apk, .dll, .pak, .pk3, .zip, or a game
+            binary. The AppImage extracted successfully; no GUI launch was
+            attempted on this headless host. The known Tauri `.app` identifier
+            warning remains non-blocking. No commit or push was made.
+2026-11-26 — Windows-from-Linux assessment completed with local/cached tools
+            only; no downloads and no push. Host rustup has only
+            x86_64-unknown-linux-gnu installed and no cached Windows std. Host
+            lacks x86_64-w64-mingw32-gcc/g++/windres, wine, makensis, and WiX;
+            the cached sonic-mania-builder image does include MinGW GCC/G++ and
+            windres but has no Rust/Cargo. `cargo fetch --target
+            x86_64-pc-windows-gnu --offline` fails at windows-sys v0.61.2; 36
+            Windows-related locked crates are not cached. No NSIS/WiX tool
+            bundles are cached. Before any Windows build: approve downloading
+            the Rust x86_64-pc-windows-gnu std target, the uncached Windows
+            Cargo crates, and (for installers) Tauri's NSIS or WiX tool bundle;
+            either install mingw-w64 locally or wrap the cached Docker MinGW
+            tools. A portable Windows .exe with `--bundles none` would avoid
+            NSIS/WiX downloads but still needs the Rust target, crates, and
+            MinGW. No tag, commit, or push was created.
+2026-11-26 — Release publication preparation approved by the user. The local
+            project directory was initialized as a Git repository on branch
+            `main` and `origin` was set to
+            https://github.com/hussamdev064/Chaos-Launcher. The existing remote
+            `main` had one commit (d3574ea1156c51939c2fd9ead6a82dcc5e611b46)
+            containing only a short README.md stub and no tags. The merge will
+            preserve that remote history and keep this project's README.md. The
+            `gh` CLI is not installed; no tool was installed. A stored Git
+            credential already authenticates as hussamdev064 with `repo` scope,
+            so Git push and the GitHub REST API via local `curl` will be used
+            instead of installing `gh`. No game assets or prebuilt game binaries
+            are being published.
