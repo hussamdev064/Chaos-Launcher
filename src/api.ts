@@ -30,11 +30,33 @@ export interface BuildTargetDto {
 export interface StartBuildPayload {
   assetPath: string;
   target: BuildTargetDto;
+  outputPath?: string | null;
 }
 
 export interface BuildEventPayload {
   percent: number | null;
+  phase?: string | null;
   message: string;
+}
+
+export interface LauncherSettings {
+  outputPath: string | null;
+}
+
+export interface CleanPlan {
+  filesystemPaths: string[];
+  customOutputPaths: string[];
+  containers: string[];
+  images: string[];
+  warnings: string[];
+}
+
+export interface CleanReport {
+  removedPaths: string[];
+  keptPaths: string[];
+  removedContainers: string[];
+  removedImages: string[];
+  warnings: string[];
 }
 
 export interface BuildResponse {
@@ -71,6 +93,19 @@ export async function pickDataRsdk(): Promise<ValidatedAsset | null> {
   return invoke<ValidatedAsset | null>("choose_data_rsdk");
 }
 
+/** Native directory picker for the custom build destination. */
+export async function pickOutputFolder(): Promise<string | null> {
+  return invoke<string | null>("choose_output_folder");
+}
+
+export async function loadSettings(): Promise<LauncherSettings> {
+  return invoke<LauncherSettings>("load_settings");
+}
+
+export async function saveSettings(settings: LauncherSettings): Promise<void> {
+  await invoke<void>("save_settings", { settings });
+}
+
 export async function validateAsset(path: string): Promise<ValidatedAsset> {
   return invoke<ValidatedAsset>("validate_asset", { path });
 }
@@ -85,6 +120,16 @@ export async function startBuild(payload: StartBuildPayload): Promise<BuildRespo
 
 export async function openOutputFolder(path: string): Promise<void> {
   await invoke<void>("open_output_folder", { path });
+}
+
+export async function previewClean(): Promise<CleanPlan> {
+  return invoke<CleanPlan>("clean_preview");
+}
+
+export async function fullClean(includeCustomOutputs: boolean): Promise<CleanReport> {
+  return invoke<CleanReport>("full_clean", {
+    request: { includeCustomOutputs },
+  });
 }
 
 export function listenDockerStatus(handler: (status: DockerStatus) => void): Promise<Unlisten> {

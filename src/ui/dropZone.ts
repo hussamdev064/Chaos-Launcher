@@ -8,39 +8,66 @@ const EXPECTED_FILENAME = "data.rsdk";
 export interface DropZoneOptions {
   asset: SourceAsset | null;
   onAssetChange: (asset: SourceAsset) => void;
+  /** `compact` is used by the dashboard; `wizard` keeps the original step view. */
+  variant?: "wizard" | "compact";
 }
 
 /**
- * Step 1 UI. The native picker is used even for drops, because a browser
- * `File` never exposes a real filesystem path that Rust can bind-mount.
- * The file is validated by Rust and is never copied or uploaded.
+ * Select the user's own legally obtained Data.rsdk. The native picker is used
+ * even for drops, because a browser `File` never exposes a real filesystem path
+ * that Rust can bind-mount. The file is validated by Rust and never copied.
  */
-export function renderDropZone({ asset, onAssetChange }: DropZoneOptions): HTMLElement {
+export function renderDropZone({
+  asset,
+  onAssetChange,
+  variant = "wizard",
+}: DropZoneOptions): HTMLElement {
+  const compact = variant === "compact";
   const section = document.createElement("section");
   section.innerHTML = `
-    <div class="mb-5">
-      <h2 class="text-2xl font-semibold tracking-tight">Add your game data</h2>
-      <p class="mt-1 text-sm text-slate-400">
-        Select your own legally obtained <code class="rounded bg-slate-800 px-1.5 py-0.5 text-sky-300">Data.rsdk</code>.
-        ChaosLauncher never downloads or bundles game assets.
+    ${
+      compact
+        ? ""
+        : `<div class="mb-5">
+             <h2 class="text-2xl font-semibold tracking-tight">Add your game data</h2>
+             <p class="mt-1 text-sm text-slate-400">
+               Select your own legally obtained <code class="rounded bg-slate-800 px-1.5 py-0.5 text-sky-300">Data.rsdk</code>.
+               ChaosLauncher never downloads or bundles game assets.
+             </p>
+           </div>`
+    }
+
+    <div data-role="drop-zone" role="button" tabindex="0" aria-label="Choose Data.rsdk"
+         class="${
+           compact
+             ? "drop-zone-compact group flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-6 text-center transition hover:border-sky-500/70 hover:bg-slate-900/70"
+             : "group flex cursor-pointer flex-col items-center gap-3 rounded-3xl border border-dashed border-slate-700 bg-slate-900/50 px-6 py-14 text-center transition hover:border-sky-500/70 hover:bg-slate-900"
+         }">
+      <svg class="${compact ? "h-7 w-7" : "h-10 w-10"} text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <p class="${compact ? "text-sm font-medium" : "text-lg font-medium"}">
+        ${compact ? 'Choose <span class="text-sky-300">Data.rsdk</span>' : 'Drop <span class="text-sky-300">Data.rsdk</span> here'}
+      </p>
+      <p class="${compact ? "text-[11px] text-slate-500" : "text-sm text-slate-400"}">
+        ${
+          compact
+            ? "Native picker or drop · stays on this machine"
+            : "or click to open the native picker — the file stays on your machine"
+        }
       </p>
     </div>
 
-    <div data-role="drop-zone" role="button" tabindex="0" aria-label="Choose Data.rsdk"
-         class="group flex cursor-pointer flex-col items-center gap-3 rounded-3xl border border-dashed border-slate-700 bg-slate-900/50 px-6 py-14 text-center transition hover:border-sky-500/70 hover:bg-slate-900">
-      <svg class="h-10 w-10 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-        <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      <p class="text-lg font-medium">Drop <span class="text-sky-300">Data.rsdk</span> here</p>
-      <p class="text-sm text-slate-400">or click to open the native picker — the file stays on your machine</p>
-    </div>
-
-    <p data-role="error" class="mt-3 min-h-5 text-sm text-rose-400" aria-live="polite"></p>
+    <p data-role="error" class="${compact ? "mt-2" : "mt-3"} min-h-5 text-sm text-rose-400" aria-live="polite"></p>
 
     ${
       asset
-        ? `<div class="mt-2 flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-             <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300" aria-hidden="true">✓</span>
+        ? `<div class="${
+            compact
+              ? "mt-1 flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3"
+              : "mt-2 flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"
+          }">
+             <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300" aria-hidden="true">✓</span>
              <div class="min-w-0">
                <p class="truncate font-medium">${escapeHtml(asset.name)}</p>
                <p class="text-xs text-slate-400">${formatBytes(asset.sizeBytes)} · ${

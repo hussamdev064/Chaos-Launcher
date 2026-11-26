@@ -366,3 +366,54 @@ Resolved versions and verification results:
             notes. Final API verification showed exactly one uploaded asset
             whose digest matched the local SHA-256. No downloads or installs
             were performed.
+2026-11-26 — Implemented the 0.2.0 launcher update from local caches only; no
+            tool, package, SDK, or dependency was downloaded or installed.
+            Version is now 0.2.0 in package.json, package-lock.json,
+            Cargo.toml, Cargo.lock, tauri.conf.json, and the UI version badge.
+            Added a persistent bottom live status/log dock with phase labels,
+            progress, an activity feed, and expandable logs; backend build
+            events now carry phases for validating, environment, configuring,
+            compiling, packaging, complete, and cleaning. Replaced the wizard
+            with a PrismLauncher-inspired sidebar/dashboard, compact source and
+            target panels, an action toolbar (Build / Open Output / Full Clean),
+            and an output destination panel with a native folder picker plus an
+            editable, locally persisted path. Builds now create timestamped
+            children under the chosen root; Open Output opens that selected
+            destination (or the last managed build folder). Full Clean shows a
+            confirmation with exact launcher-created targets before removing
+            only the cached source checkout, managed outputs, gradle cache,
+            macOS temp build dir, output manifest, recorded timestamped custom
+            output children (opt-in), `chaoslauncher-build-*` containers, and
+            `sonic-mania-builder:latest`; Data.rsdk, system files, unrelated
+            folders, Docker sockets, and custom output roots are excluded.
+            Verification: `npm run build` passed (tsc + Vite), `cargo check
+            --offline` passed, `cargo test --offline` passed 16 tests with 1
+            Docker-dependent test ignored,
+            and `npm run tauri build -- --no-bundle` produced
+            src-tauri/target/release/chaoslauncher (ELF64 x86-64, sha256
+            4cca25665f6e1b17dc1ecb5974f00e2d4dcbd2107dfc76c08b321c7f4d74ef6c).
+            A 20-second smoke run exited only due to timeout (124) with no
+            stderr output, and a GDB attach showed the main thread in
+            gtk_main_iteration_do/Tauri's event loop. AppImage bundling was
+            intentionally skipped because the cached appimagetool helper was
+            not present; no download was attempted. No git push, tag, or
+            release was performed, and no game assets or prebuilt game binaries
+            were downloaded, bundled, or published.
+2026-11-26 — User approved building/publishing the 0.2.0 AppImage and release.
+            A usable cached `appimagetool` was found inside the local Docker
+            overlay snapshot at
+            ~/.local/share/docker/containerd/daemon/io.containerd.snapshotter.v1.overlayfs/snapshots/683/fs/usr/local/bin/appimagetool
+            (commit 5735cc5), so no download was needed. The existing cached
+            AppDir was refreshed with the 0.2.0 release binary and current
+            LICENSE/README/NOTICE, then packaged with `--no-appstream` using
+            only local tools. New asset:
+            src-tauri/target/release/bundle/appimage/ChaosLauncher_0.2.0_amd64.AppImage
+            (131,097,792 bytes, sha256
+            7fee8eeabc7f8c47a7887ce163384cce18c5f4ac71c139d796fc39b58e469f97).
+            Verified as ELF64 x86-64; a 20-second smoke run exited only on
+            timeout (124) with no stderr, and a GDB attach to the extracted app
+            showed the main thread in gtk_main_iteration_do/Tauri's event loop.
+            Static checks: embedded binary SHA-256 matches the release binary,
+            562 payload files, 0 Data.rsdk/game-binary files, LICENSE/NOTICE/
+            README and desktop entry present. No game assets or prebuilt game
+            binaries were bundled.

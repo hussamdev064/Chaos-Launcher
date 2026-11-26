@@ -5,9 +5,11 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
+mod clean;
 mod commands;
 mod docker;
 pub mod build;
+pub mod settings;
 pub mod source;
 
 use commands::{publish_docker_status, BuildState, DockerState};
@@ -58,10 +60,15 @@ pub fn run() {
             commands::docker_status,
             commands::host_platform,
             commands::choose_data_rsdk,
+            commands::choose_output_folder,
+            commands::load_settings,
+            commands::save_settings,
             commands::validate_asset,
             commands::prepare_source,
             commands::start_build,
             commands::open_output_folder,
+            commands::clean_preview,
+            commands::full_clean,
         ])
         .run(tauri::generate_context!());
 

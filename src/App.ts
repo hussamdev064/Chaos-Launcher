@@ -2,32 +2,65 @@ import {
   errorMessage,
   fetchDockerStatus,
   fetchHostPlatform,
+  fullClean,
   listenBuildEvents,
   listenDockerStatus,
+  loadSettings,
   openOutputFolder,
+  pickOutputFolder,
+  previewClean,
+  saveSettings,
   startBuild as invokeStartBuild,
   type BuildEventPayload,
+  type CleanPlan,
+  type CleanReport,
+  type DockerStage,
   type DockerStatus,
 } from "./api";
+import packageInfo from "../package.json";
 import { queryRequired } from "./ui/dom";
-import { createBuildProgress, type BuildProgressView } from "./ui/buildProgress";
+import { formatBytes } from "./ui/format";
 import { renderDropZone } from "./ui/dropZone";
-import { renderTargetSelector } from "./ui/targetSelector";
-import type { BuildSelection, StepIndex } from "./types";
+import { formatOption, platformOption, renderTargetSelector } from "./ui/targetSelector";
+import { createStatusDock, type ActivityTone, type StatusDock } from "./ui/statusDock";
+import type { BuildSelection } from "./types";
 
-const STEP_LABELS = ["Source asset", "Target", "Build"] as const;
+const PHASE_LABELS: Record<string, string> = {
+  validating: "Validating asset",
+  environment: "Environment",
+  configuring: "Configuring",
+  compiling: "Compiling",
+  packaging: "Packaging",
+  complete: "Complete",
+  cleaning: "Cleaning",
+};
+
+const PHASE_TONES: Record<string, ActivityTone> = {
+  complete: "success",
+  cleaning: "warning",
+};
+
+const DOCKER_BADGE_TONES: Record<DockerStage, string> = {
+  checking: "border-slate-700 bg-slate-800/60 text-slate-300",
+  building: "border-amber-500/30 bg-amber-500/10 text-amber-200",
+  ready: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+  failed: "border-rose-500/30 bg-rose-500/10 text-rose-200",
+};
 
 interface AppState {
-  step: StepIndex;
   selection: BuildSelection;
   building: boolean;
+  cleaning: boolean;
   isMacHost: boolean | null;
   dockerStatus: DockerStatus | null;
+  /** Persisted custom output root; empty means use the managed cache. */
+  outputPath: string;
+  lastOutputPath: string | null;
+  lastArtifacts: string[];
 }
 
 export function mountApp(root: HTMLElement): void {
   const state: AppState = {
-    step: 0,
     selection: {
       asset: null,
       platform: "windows",
@@ -35,195 +68,432 @@ export function mountApp(root: HTMLElement): void {
       format: "exe",
     },
     building: false,
+    cleaning: false,
     isMacHost: null,
     dockerStatus: null,
+    outputPath: "",
+    lastOutputPath: null,
+    lastArtifacts: [],
   };
 
   root.innerHTML = `
-    <div class="mx-auto flex min-h-screen max-w-5xl flex-col px-5 py-8 sm:px-8">
-      <header class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-6">
-        <div>
-          <h1 class="text-2xl font-bold tracking-tight">Chaos<span class="text-sky-400">Launcher</span></h1>
-          <p class="mt-1 text-sm text-slate-400">Build Sonic Mania for any target, with no local toolchains.</p>
+    <div class="app-shell">
+      <aside class="app-sidebar">
+        <div class="side-brand">
+          <span class="brand-mark" aria-hidden="true">CL</span>
+          <div class="min-w-0">
+            <p class="truncate font-semibold tracking-tight">ChaosLauncher</p>
+            <span class="version-badge">v${packageInfo.version}</span>
+          </div>
         </div>
-        <span data-role="docker-status"
-              class="rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1 text-xs text-slate-300">
-          Docker: checking…
-        </span>
-      </header>
+        <p class="side-tagline">Sonic Mania builds with no local toolchains.</p>
 
-      <nav data-role="steps" aria-label="Build steps" class="mt-6 flex flex-wrap gap-2"></nav>
+        <p class="side-section-label">Workspace</p>
+        <nav class="side-nav" aria-label="Launcher sections">
+          <button type="button" data-nav="build" class="nav-item is-active">
+            <span class="nav-dot" aria-hidden="true"></span><span>Build setup</span>
+          </button>
+          <button type="button" data-nav="destination" class="nav-item">
+            <span class="nav-dot" aria-hidden="true"></span><span>Destination</span>
+          </button>
+          <button type="button" data-nav="maintenance" class="nav-item">
+            <span class="nav-dot" aria-hidden="true"></span><span>Maintenance</span>
+          </button>
+        </nav>
 
-      <main class="flex-1 py-8">
-        <div data-role="step-content"></div>
-      </main>
+        <div class="sidebar-foot">
+          <p class="side-section-label !mt-0">Runtime</p>
+          <div data-role="docker-badge" class="side-status">Docker: checking…</div>
+          <p class="mt-3 text-[11px] leading-relaxed text-slate-600">
+            GPLv3 launcher · game assets stay on your machine.
+          </p>
+        </div>
+      </aside>
 
-      <footer class="flex items-center justify-between border-t border-slate-800 pt-5">
-        <button type="button" data-role="back"
-                class="rounded-xl px-5 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">Back</button>
-        <button type="button" data-role="next"
-                class="rounded-xl bg-sky-500 px-6 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500">
-          Continue
-        </button>
-      </footer>
+      <div class="workspace-column">
+        <header class="app-toolbar">
+          <div class="min-w-0">
+            <p class="toolbar-kicker">Sonic Mania builder</p>
+            <h1>Build dashboard</h1>
+            <p class="toolbar-subtitle">Pick your data, choose a target, and watch the whole build live.</p>
+          </div>
+          <div class="toolbar-actions">
+            <button type="button" data-action="build" class="toolbar-button toolbar-button-primary">Build</button>
+            <button type="button" data-action="open" class="toolbar-button">Open Output</button>
+            <button type="button" data-action="clean" class="toolbar-button toolbar-button-danger">Full Clean</button>
+          </div>
+        </header>
+
+        <main class="workspace">
+          <section class="panel" data-panel="build" aria-labelledby="build-heading">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">01 / Configuration</p>
+                <h2 id="build-heading">Build setup</h2>
+              </div>
+              <span data-role="asset-chip" class="stat-chip">Asset required</span>
+            </div>
+
+            <div class="summary-grid">
+              <div class="summary-stat">
+                <span>Source data</span>
+                <strong data-role="summary-asset">Not selected</strong>
+              </div>
+              <div class="summary-stat">
+                <span>Target</span>
+                <strong data-role="summary-target">Windows · x86-64 · Standalone .exe</strong>
+              </div>
+              <div class="summary-stat">
+                <span>Destination</span>
+                <strong data-role="summary-output">Managed cache</strong>
+              </div>
+              <div class="summary-stat">
+                <span>Build runtime</span>
+                <strong data-role="summary-runtime">Docker container</strong>
+              </div>
+            </div>
+
+            <div class="config-grid">
+              <article class="panel-card">
+                <div class="panel-card-head">
+                  <div>
+                    <h3>Game data</h3>
+                    <p>Your own legally obtained Data.rsdk; never downloaded or bundled.</p>
+                  </div>
+                  <span class="card-index">01</span>
+                </div>
+                <div data-role="source-panel"></div>
+              </article>
+
+              <article class="panel-card">
+                <div class="panel-card-head">
+                  <div>
+                    <h3>Build target</h3>
+                    <p>Platform, architecture, and output format.</p>
+                  </div>
+                  <span class="card-index">02</span>
+                </div>
+                <div data-role="target-panel"></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel" data-panel="destination" aria-labelledby="destination-heading">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">02 / Output</p>
+                <h2 id="destination-heading">Destination</h2>
+              </div>
+              <span class="stat-chip">Optional</span>
+            </div>
+            <div class="panel-card">
+              <div class="panel-card-head">
+                <div>
+                  <h3>Custom output folder</h3>
+                  <p>Leave empty to use the launcher cache; builds always create a timestamped child folder.</p>
+                </div>
+                <span class="card-index">03</span>
+              </div>
+              <label class="field-label" for="output-path">Folder path</label>
+              <div class="input-row">
+                <input id="output-path" data-role="output-input" type="text" spellcheck="false"
+                       autocomplete="off" placeholder="~/SonicMania-builds (or leave empty)" />
+                <button type="button" data-role="browse-output" class="toolbar-button">Browse…</button>
+                <button type="button" data-role="clear-output" class="toolbar-button">Use default</button>
+              </div>
+              <p data-role="output-hint" class="field-hint">Choose a folder or keep the managed default.</p>
+            </div>
+          </section>
+
+          <section class="panel" data-panel="maintenance" aria-labelledby="maintenance-heading">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">03 / Maintenance</p>
+                <h2 id="maintenance-heading">Full Clean</h2>
+              </div>
+              <span class="stat-chip stat-chip-danger">Confirmation required</span>
+            </div>
+            <div class="clean-layout">
+              <div>
+                <p class="text-sm leading-relaxed text-slate-300">
+                  Removes only launcher-created caches, the cached source checkout, generated build
+                  folders, build containers, and the builder image. Nothing is deleted until you
+                  review the exact target list and confirm.
+                </p>
+                <ul class="clean-list">
+                  <li><span class="text-emerald-300">Never removed:</span> your Data.rsdk, system files, unrelated folders, Docker sockets, or your custom output folder itself.</li>
+                  <li><span class="text-amber-300">Re-downloaded later:</span> the source checkout and builder image are recreated on the next build.</li>
+                </ul>
+              </div>
+              <div class="clean-controls">
+                <label class="checkbox-row">
+                  <input type="checkbox" data-role="include-custom" />
+                  <span>Also delete generated build folders inside my custom output folder</span>
+                </label>
+                <p class="field-hint">Only timestamped folders ChaosLauncher recorded are eligible; the chosen folder itself is kept.</p>
+                <button type="button" data-role="clean-panel-button" class="toolbar-button toolbar-button-danger">Review &amp; clean</button>
+              </div>
+            </div>
+            <pre data-role="clean-report" class="clean-report" hidden></pre>
+          </section>
+
+          <section class="panel result-panel" data-role="result-card" hidden>
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Latest build</p>
+                <h2>Artifacts ready</h2>
+              </div>
+              <span class="stat-chip stat-chip-success">Complete</span>
+            </div>
+            <p data-role="result-path" class="result-path"></p>
+            <ul data-role="result-artifacts" class="artifact-list"></ul>
+            <div class="result-actions">
+              <button type="button" data-role="open-result" class="toolbar-button toolbar-button-primary">Open build folder</button>
+              <button type="button" data-role="compile-another" class="toolbar-button">Change target</button>
+            </div>
+          </section>
+        </main>
+
+        <div data-role="dock-host"></div>
+      </div>
     </div>
   `;
 
-  const stepsNav = queryRequired<HTMLElement>(root, "[data-role='steps']");
-  const stepContent = queryRequired<HTMLElement>(root, "[data-role='step-content']");
-  const backButton = queryRequired<HTMLButtonElement>(root, "[data-role='back']");
-  const nextButton = queryRequired<HTMLButtonElement>(root, "[data-role='next']");
-  const dockerBadge = queryRequired<HTMLElement>(root, "[data-role='docker-status']");
+  const dockerBadge = queryRequired<HTMLElement>(root, "[data-role='docker-badge']");
+  const sourceHost = queryRequired<HTMLElement>(root, "[data-role='source-panel']");
+  const targetHost = queryRequired<HTMLElement>(root, "[data-role='target-panel']");
+  const assetChip = queryRequired<HTMLElement>(root, "[data-role='asset-chip']");
+  const summaryAsset = queryRequired<HTMLElement>(root, "[data-role='summary-asset']");
+  const summaryTarget = queryRequired<HTMLElement>(root, "[data-role='summary-target']");
+  const summaryOutput = queryRequired<HTMLElement>(root, "[data-role='summary-output']");
+  const summaryRuntime = queryRequired<HTMLElement>(root, "[data-role='summary-runtime']");
+  const outputInput = queryRequired<HTMLInputElement>(root, "[data-role='output-input']");
+  const outputHint = queryRequired<HTMLElement>(root, "[data-role='output-hint']");
+  const includeCustomInput = queryRequired<HTMLInputElement>(root, "[data-role='include-custom']");
+  const cleanReport = queryRequired<HTMLPreElement>(root, "[data-role='clean-report']");
+  const resultCard = queryRequired<HTMLElement>(root, "[data-role='result-card']");
+  const resultPath = queryRequired<HTMLElement>(root, "[data-role='result-path']");
+  const resultArtifacts = queryRequired<HTMLUListElement>(root, "[data-role='result-artifacts']");
+  const buildButton = queryRequired<HTMLButtonElement>(root, "[data-action='build']");
+  const openButton = queryRequired<HTMLButtonElement>(root, "[data-action='open']");
+  const cleanButton = queryRequired<HTMLButtonElement>(root, "[data-action='clean']");
+  const cleanPanelButton = queryRequired<HTMLButtonElement>(root, "[data-role='clean-panel-button']");
+  const browseOutputButton = queryRequired<HTMLButtonElement>(root, "[data-role='browse-output']");
+  const clearOutputButton = queryRequired<HTMLButtonElement>(root, "[data-role='clear-output']");
+  const openResultButton = queryRequired<HTMLButtonElement>(root, "[data-role='open-result']");
+  const compileAnotherButton = queryRequired<HTMLButtonElement>(root, "[data-role='compile-another']");
 
-  let progressView: BuildProgressView | null = null;
+  const dock: StatusDock = createStatusDock();
+  queryRequired<HTMLElement>(root, "[data-role='dock-host']").replaceChildren(dock.element);
 
-  function hasAssetPath(): boolean {
-    return typeof state.selection.asset?.path === "string" && state.selection.asset.path.length > 0;
+  let currentPhaseLabel = "Idle";
+  let lastActivityKey = "";
+  let lastDockerStage: DockerStage | null = null;
+  let persistedOutput = "";
+
+  function targetLabel(): string {
+    const platform = platformOption(state.selection.platform).label;
+    const format = formatOption(state.selection.platform, state.selection.format)?.label ?? state.selection.format;
+    return `${platform} · ${state.selection.architecture} · ${format}`;
   }
 
-  function updateFooter(): void {
-    backButton.classList.toggle("invisible", state.step === 0);
-    backButton.disabled = state.building;
-    backButton.textContent = state.building ? "Building…" : "Back";
-    nextButton.classList.toggle("hidden", state.step === 2);
-    nextButton.disabled = state.building || (state.step === 0 && !hasAssetPath());
-    nextButton.textContent = state.step === 1 ? "Start build" : "Continue";
+  function busy(): boolean {
+    return state.building || state.cleaning;
   }
+
+  function updateToolbar(): void {
+    const locked = busy();
+    buildButton.disabled = locked || !state.selection.asset?.path;
+    buildButton.textContent = state.building ? "Building…" : "Build";
+    openButton.disabled = locked;
+    cleanButton.disabled = locked;
+    cleanButton.textContent = state.cleaning ? "Cleaning…" : "Full Clean";
+    cleanPanelButton.disabled = locked;
+    cleanPanelButton.textContent = state.cleaning ? "Cleaning…" : "Review & clean";
+    includeCustomInput.disabled = locked;
+  }
+
+  function updateSummary(): void {
+    const asset = state.selection.asset;
+    assetChip.textContent = asset ? "Asset ready" : "Asset required";
+    assetChip.classList.toggle("stat-chip-success", Boolean(asset));
+    summaryAsset.textContent = asset ? `${asset.name} · ${formatBytes(asset.sizeBytes)}` : "Not selected";
+    summaryTarget.textContent = targetLabel();
+    summaryOutput.textContent = state.outputPath.trim() || "Managed cache";
+    const runtime =
+      state.selection.platform === "macos" ? "Native Xcode host" : "Docker container";
+    const dockerSuffix = state.dockerStatus ? ` · ${state.dockerStatus.stage}` : "";
+    summaryRuntime.textContent = `${runtime}${dockerSuffix}`;
+    updateToolbar();
+  }
+
+  function setOutputHint(message: string, isError = false): void {
+    outputHint.textContent = message;
+    outputHint.classList.toggle("text-rose-400", isError);
+  }
+
+  function renderSource(): void {
+    sourceHost.replaceChildren(
+      renderDropZone({
+        asset: state.selection.asset,
+        variant: "compact",
+        onAssetChange: (asset) => {
+          state.selection.asset = asset;
+          dock.addActivity("Data.rsdk selected", asset.name, "success");
+          renderSource();
+          updateSummary();
+        },
+      }),
+    );
+  }
+
+  function renderTarget(): void {
+    targetHost.replaceChildren(
+      renderTargetSelector({
+        platform: state.selection.platform,
+        architecture: state.selection.architecture,
+        format: state.selection.format,
+        isMacHost: state.isMacHost ?? undefined,
+        variant: "compact",
+        onChange: (platform, architecture, format) => {
+          state.selection.platform = platform;
+          state.selection.architecture = architecture;
+          state.selection.format = format;
+          dock.addActivity("Target updated", targetLabel());
+          renderTarget();
+          updateSummary();
+        },
+      }),
+    );
+  }
+
+  function renderResult(): void {
+    const path = state.lastOutputPath;
+    resultCard.hidden = !path;
+    if (!path) {
+      return;
+    }
+    resultPath.textContent = path;
+    resultArtifacts.replaceChildren(
+      ...state.lastArtifacts.map((artifact) => {
+        const item = document.createElement("li");
+        item.textContent = artifact;
+        return item;
+      }),
+    );
+  }
+
+  function applyBuildEvent(event: BuildEventPayload): void {
+    const message = event.message ?? "";
+    if (event.phase) {
+      const label = PHASE_LABELS[event.phase] ?? event.phase;
+      currentPhaseLabel = label;
+      dock.setPhase(label, message || `${label}…`);
+      const key = `${event.phase}:${message}`;
+      if (key !== lastActivityKey) {
+        lastActivityKey = key;
+        dock.addActivity(label, message, PHASE_TONES[event.phase] ?? "info");
+      }
+      if (message) {
+        dock.appendLog(message);
+      }
+      return;
+    }
+
+    if (event.percent !== null) {
+      dock.setProgress(event.percent, message);
+      if (message) {
+        dock.appendLog(message);
+      }
+      return;
+    }
+
+    if (message) {
+      dock.setPhase(currentPhaseLabel, message);
+      dock.appendLog(message);
+    }
+  }
+
+  const listenerReady: Promise<void> = listenBuildEvents(applyBuildEvent)
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      dock.addActivity("Live build events unavailable", errorMessage(error), "warning");
+    });
 
   function applyDockerStatus(status: DockerStatus): void {
     state.dockerStatus = status;
-    const tones: Record<DockerStatus["stage"], string> = {
-      checking: "border-slate-700 bg-slate-800/60 text-slate-300",
-      building: "border-amber-500/30 bg-amber-500/10 text-amber-200",
-      ready: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
-      failed: "border-rose-500/30 bg-rose-500/10 text-rose-200",
-    };
-    dockerBadge.className = `rounded-full border px-3 py-1 text-xs ${tones[status.stage]}`;
+    dockerBadge.className = `side-status ${DOCKER_BADGE_TONES[status.stage]}`;
     dockerBadge.textContent = `Docker: ${status.message}`;
-  }
-
-  function render(): void {
-    progressView = null;
-    stepsNav.innerHTML = STEP_LABELS.map((label, index) => {
-      const isActive = index === state.step;
-      const isDone = index < state.step;
-      return `
-        <span class="flex items-center gap-2 rounded-full px-3 py-1.5 text-xs ${
-          isActive
-            ? "bg-sky-500/15 text-sky-300"
-            : isDone
-              ? "text-emerald-300"
-              : "text-slate-500"
-        }">
-          <span class="flex h-5 w-5 items-center justify-center rounded-full border text-[10px] ${
-            isActive ? "border-sky-400" : isDone ? "border-emerald-500" : "border-slate-700"
-          }">${index + 1}</span>
-          ${label}
-        </span>`;
-    }).join("");
-
-    updateFooter();
-
-    switch (state.step) {
-      case 0:
-        stepContent.replaceChildren(
-          renderDropZone({
-            asset: state.selection.asset,
-            onAssetChange: (asset) => {
-              state.selection.asset = asset;
-              render();
-            },
-          }),
-        );
-        break;
-      case 1:
-        stepContent.replaceChildren(
-          renderTargetSelector({
-            platform: state.selection.platform,
-            architecture: state.selection.architecture,
-            format: state.selection.format,
-            isMacHost: state.isMacHost ?? undefined,
-            onChange: (platform, architecture, format) => {
-              state.selection.platform = platform;
-              state.selection.architecture = architecture;
-              state.selection.format = format;
-              render();
-            },
-          }),
-        );
-        break;
-      case 2: {
-        const view = createBuildProgress({
-          selection: state.selection,
-          onReset: () => {
-            if (state.building) {
-              return;
-            }
-            // Keep the validated asset; only the target needs changing.
-            state.step = 1;
-            render();
-          },
-          onOpenFolder: openOutputFolder,
-        });
-        progressView = view;
-        stepContent.replaceChildren(view.element);
-        break;
-      }
+    if (status.stage !== lastDockerStage) {
+      lastDockerStage = status.stage;
+      const tone: ActivityTone =
+        status.stage === "ready"
+          ? "success"
+          : status.stage === "failed"
+            ? "warning"
+            : "info";
+      dock.addActivity(`Docker ${status.stage}`, status.message, tone);
+      updateSummary();
     }
   }
 
-  async function startBuild(): Promise<void> {
-    if (state.building || !hasAssetPath()) {
+  async function persistOutput(): Promise<void> {
+    const value = outputInput.value.trim();
+    if (value === persistedOutput) {
       return;
     }
-
-    state.building = true;
-    state.step = 2;
-    render();
-
-    const view = progressView;
-    if (!view) {
-      state.building = false;
-      updateFooter();
-      return;
-    }
-
-    view.setRunning(true);
-    view.setProgress(0, "Preparing source checkout...");
-    view.appendLog("Starting build...");
-
-    let percent = 0;
-    let status = "Preparing source checkout...";
-
-    const applyEvent = (event: BuildEventPayload): void => {
-      if (event.percent !== null) {
-        percent = event.percent;
-        if (event.message) {
-          status = event.message;
-          view.appendLog(event.message);
-        }
-        view.setProgress(percent, status);
-        return;
-      }
-      if (event.message) {
-        status = event.message;
-        view.appendLog(event.message);
-        view.setProgress(percent, status);
-      }
-    };
-
-    let unlisten: (() => void) | null = null;
     try {
-      unlisten = await listenBuildEvents(applyEvent);
+      await saveSettings({ outputPath: value || null });
+      persistedOutput = value;
+      state.outputPath = value;
+      setOutputHint(
+        value
+          ? `Saved locally · builds create timestamped folders in ${value}`
+          : "Saved locally · using managed cache outputs",
+      );
+      dock.addActivity("Output destination saved", value || "managed cache", "success");
+      updateSummary();
     } catch (error) {
-      view.appendLog(`Live logs unavailable: ${errorMessage(error)}`);
+      const message = errorMessage(error);
+      setOutputHint(message, true);
+      dock.addActivity("Could not save output destination", message, "error");
+    }
+  }
+
+  async function openPath(path: string | null): Promise<void> {
+    if (!path) {
+      dock.addActivity("No output folder yet", "Run a build or choose a destination first", "warning");
+      return;
+    }
+    try {
+      await openOutputFolder(path);
+      dock.addActivity("Opened output folder", path, "success");
+    } catch (error) {
+      const message = errorMessage(error);
+      dock.addActivity("Could not open output folder", message, "error");
+    }
+  }
+
+  async function runBuild(): Promise<void> {
+    if (busy()) {
+      return;
+    }
+    const asset = state.selection.asset;
+    if (!asset?.path) {
+      dock.addActivity("Build needs Data.rsdk", "Select your local game data first", "warning");
+      return;
     }
 
+    await listenerReady;
+    state.building = true;
+    updateToolbar();
+    dock.setBusy(true);
+    dock.clearLog();
+    dock.setPhase("Starting", "Preparing the build...");
+    dock.setProgress(0, "Starting build...");
+    dock.addActivity("Build started", targetLabel());
+
     try {
-      const asset = state.selection.asset;
-      if (!asset?.path) {
-        throw new Error("Select Data.rsdk before building.");
-      }
       const response = await invokeStartBuild({
         assetPath: asset.path,
         target: {
@@ -231,67 +501,228 @@ export function mountApp(root: HTMLElement): void {
           architecture: state.selection.architecture,
           format: state.selection.format,
         },
+        outputPath: state.outputPath.trim() || null,
       });
-      view.setProgress(100, "Build complete.");
-      view.setCompleted(response.outputDirectory);
-      view.appendLog(`Artifacts: ${response.artifacts.join(", ") || "(none)"}`);
+
+      state.lastOutputPath = response.outputDirectory;
+      state.lastArtifacts = response.artifacts;
+      renderResult();
+      dock.setPhase("Complete", "Build complete.");
+      dock.setProgress(100, "Build complete.");
+      dock.addActivity("Build complete", response.outputDirectory, "success");
+      dock.appendLog(`Artifacts: ${response.artifacts.join(", ") || "(none)"}`);
       if (response.assetSha256) {
-        view.appendLog(`Data.rsdk SHA-256: ${response.assetSha256}`);
+        dock.appendLog(`Data.rsdk SHA-256: ${response.assetSha256}`);
       }
     } catch (error) {
       const message = errorMessage(error);
-      view.setFailed(`Build failed: ${message}`);
-      view.appendLog(message);
+      dock.setPhase("Failed", message);
+      dock.setError(message);
+      dock.addActivity("Build failed", message, "error");
+      dock.appendLog(message);
     } finally {
-      if (unlisten) {
-        unlisten();
-      }
       state.building = false;
-      view.setRunning(false);
-      updateFooter();
+      dock.setBusy(false);
+      updateToolbar();
     }
   }
 
-  backButton.addEventListener("click", () => {
-    if (state.building || state.step === 0) {
+  function planSection(title: string, items: string[]): string {
+    const body = items.length
+      ? items.map((item) => `  • ${item}`).join("\n")
+      : "  (none)";
+    return `${title}:\n${body}`;
+  }
+
+  function describePlan(plan: CleanPlan, includeCustomPaths: boolean): string {
+    const customPaths = plan.customOutputPaths.map((path) =>
+      includeCustomPaths ? `${path} (will be removed)` : `${path} (kept)`,
+    );
+    return [
+      "ChaosLauncher Full Clean will target only these launcher-created items:",
+      planSection("Filesystem roots", plan.filesystemPaths),
+      planSection("Generated folders in custom output roots", customPaths),
+      planSection("Build containers", plan.containers),
+      planSection("Builder image", plan.images),
+      planSection("Warnings", plan.warnings),
+      "",
+      "Never deleted: your original Data.rsdk, system files, unrelated directories, Docker sockets, and the custom output folder itself.",
+      includeCustomPaths
+        ? "The custom output folder itself is preserved; only recorded timestamped children are removed."
+        : "Generated builds inside custom output folders are kept because the option is unchecked.",
+    ].join("\n");
+  }
+
+  function renderCleanReport(report: CleanReport): void {
+    cleanReport.textContent = [
+      "Full Clean finished",
+      planSection("Removed filesystem paths", report.removedPaths),
+      planSection("Kept custom build folders", report.keptPaths),
+      planSection("Removed containers", report.removedContainers),
+      planSection("Removed images", report.removedImages),
+      planSection("Warnings", report.warnings),
+    ].join("\n");
+    cleanReport.hidden = false;
+  }
+
+  async function runFullClean(): Promise<void> {
+    if (busy()) {
       return;
     }
-    state.step = (state.step - 1) as StepIndex;
-    render();
+    await listenerReady;
+    const includeCustom = includeCustomInput.checked;
+
+    try {
+      dock.addActivity("Preparing Full Clean", "Reading launcher-created targets...");
+      const plan = await previewClean();
+      if (!window.confirm(describePlan(plan, includeCustom))) {
+        dock.addActivity("Full Clean cancelled", "Nothing was removed", "warning");
+        return;
+      }
+
+      state.cleaning = true;
+      updateToolbar();
+      dock.setBusy(true);
+      dock.clearLog();
+      dock.setPhase("Cleaning", "Full Clean started.");
+      dock.addActivity(
+        "Full Clean started",
+        includeCustom ? "including custom build folders" : "keeping custom build folders",
+        "warning",
+      );
+
+      const report = await fullClean(includeCustom);
+      renderCleanReport(report);
+      if (state.lastOutputPath && report.removedPaths.includes(state.lastOutputPath)) {
+        state.lastOutputPath = null;
+        state.lastArtifacts = [];
+        renderResult();
+      }
+
+      dock.setPhase("Complete", "Full Clean finished.");
+      dock.setProgress(100, "Full Clean finished.");
+      dock.addActivity(
+        "Full Clean finished",
+        `${report.removedPaths.length} path(s), ${report.removedContainers.length} container(s), ${report.removedImages.length} image(s)`,
+        report.warnings.length ? "warning" : "success",
+      );
+      for (const path of report.removedPaths) {
+        dock.appendLog(`Removed: ${path}`);
+      }
+      for (const path of report.keptPaths) {
+        dock.appendLog(`Kept: ${path}`);
+      }
+      for (const name of report.removedContainers) {
+        dock.appendLog(`Removed container: ${name}`);
+      }
+      for (const name of report.removedImages) {
+        dock.appendLog(`Removed image: ${name}`);
+      }
+      for (const warning of report.warnings) {
+        dock.appendLog(`Warning: ${warning}`);
+      }
+    } catch (error) {
+      const message = errorMessage(error);
+      dock.setPhase("Failed", message);
+      dock.setError(message);
+      dock.addActivity("Full Clean failed", message, "error");
+      dock.appendLog(message);
+    } finally {
+      state.cleaning = false;
+      dock.setBusy(false);
+      updateToolbar();
+    }
+  }
+
+  buildButton.addEventListener("click", () => void runBuild());
+  openButton.addEventListener("click", () => void openPath(state.outputPath.trim() || state.lastOutputPath));
+  cleanButton.addEventListener("click", () => void runFullClean());
+  cleanPanelButton.addEventListener("click", () => void runFullClean());
+  openResultButton.addEventListener("click", () => void openPath(state.lastOutputPath));
+
+  compileAnotherButton.addEventListener("click", () => {
+    const buildPanel = queryRequired<HTMLElement>(root, "[data-panel='build']");
+    buildPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    targetHost.querySelector<HTMLElement>("h2")?.focus();
   });
 
-  nextButton.addEventListener("click", () => {
-    if (state.building) {
-      return;
-    }
-    if (state.step === 0 && hasAssetPath()) {
-      state.step = 1;
-      render();
-      return;
-    }
-    if (state.step === 1) {
-      void startBuild();
+  browseOutputButton.addEventListener("click", () => {
+    void (async () => {
+      try {
+        const picked = await pickOutputFolder();
+        if (!picked) {
+          return;
+        }
+        outputInput.value = picked;
+        await persistOutput();
+      } catch (error) {
+        const message = errorMessage(error);
+        setOutputHint(message, true);
+        dock.addActivity("Could not choose output folder", message, "error");
+      }
+    })();
+  });
+
+  clearOutputButton.addEventListener("click", () => {
+    outputInput.value = "";
+    void persistOutput();
+  });
+  outputInput.addEventListener("change", () => void persistOutput());
+  outputInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      outputInput.blur();
     }
   });
 
-  render();
+  root.querySelectorAll<HTMLButtonElement>("[data-nav]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const panel = queryRequired<HTMLElement>(root, `[data-panel='${button.dataset.nav}']`);
+      root.querySelectorAll<HTMLElement>(".nav-item").forEach((item) => {
+        item.classList.toggle("is-active", item === button);
+      });
+      panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
+  renderSource();
+  renderTarget();
+  renderResult();
+  updateSummary();
+
+  void loadSettings()
+    .then((settings) => {
+      const value = settings.outputPath ?? "";
+      state.outputPath = value;
+      persistedOutput = value;
+      outputInput.value = value;
+      setOutputHint(
+        value
+          ? `Loaded from local settings · builds create folders in ${value}`
+          : "Loaded from local settings · using managed cache outputs",
+      );
+      updateSummary();
+    })
+    .catch((error: unknown) => {
+      const message = errorMessage(error);
+      setOutputHint(`Settings unavailable: ${message}`, true);
+      dock.addActivity("Settings unavailable", message, "warning");
+    });
 
   void fetchHostPlatform()
     .then((platform) => {
       state.isMacHost = platform === "macos";
-      if (!state.building && state.step === 1) {
-        render();
-      }
+      renderTarget();
     })
     .catch(() => {
-      // Keep the user-agent fallback from targetSelector.ts.
+      // The target selector's user-agent fallback remains available.
     });
 
-  void fetchDockerStatus()
-    .then(applyDockerStatus)
-    .catch(() =>
-      applyDockerStatus({ stage: "failed", message: "Docker status unavailable in this browser" }),
-    );
+  void fetchDockerStatus().then(applyDockerStatus).catch((error: unknown) => {
+    applyDockerStatus({
+      stage: "failed",
+      message: `Docker status unavailable: ${errorMessage(error)}`,
+    });
+  });
 
   void listenDockerStatus(applyDockerStatus).catch(() => {
     // The initial fetch above still covers the common startup case.

@@ -239,18 +239,16 @@ fn handle_log_line(line: &str, on_event: &EventSink, tail: &mut Vec<String>) {
 
     if let Some(percent) = line.strip_prefix("::progress::") {
         if let Ok(value) = percent.parse::<u8>() {
-            on_event(BuildEvent {
-                percent: Some(value),
-                message: String::new(),
-            });
+            on_event(BuildEvent::progress(value, ""));
             return;
         }
     }
+    if let Some(phase) = line.strip_prefix("::phase::") {
+        on_event(BuildEvent::phase(phase.to_owned(), format!("Entering {phase} stage")));
+        return;
+    }
     if let Some(stage) = line.strip_prefix("::stage::") {
-        on_event(BuildEvent {
-            percent: None,
-            message: stage.to_owned(),
-        });
+        on_event(BuildEvent::log(stage.to_owned()));
         return;
     }
 
@@ -258,10 +256,7 @@ fn handle_log_line(line: &str, on_event: &EventSink, tail: &mut Vec<String>) {
     if tail.len() > 12 {
         tail.remove(0);
     }
-    on_event(BuildEvent {
-        percent: None,
-        message: line.to_owned(),
-    });
+    on_event(BuildEvent::log(line.to_owned()));
 }
 
 #[cfg(test)]

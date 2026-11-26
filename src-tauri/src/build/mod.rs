@@ -27,7 +27,35 @@ pub struct BuildRequest {
 pub struct BuildEvent {
     /// `None` for a log/stage line, `Some(0..=100)` for progress updates.
     pub percent: Option<u8>,
+    /// Optional work-line stage such as `validating`, `compiling`, or `cleaning`.
+    pub phase: Option<String>,
     pub message: String,
+}
+
+impl BuildEvent {
+    pub fn progress(percent: u8, message: impl Into<String>) -> Self {
+        Self {
+            percent: Some(percent),
+            phase: None,
+            message: message.into(),
+        }
+    }
+
+    pub fn phase(phase: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            percent: None,
+            phase: Some(phase.into()),
+            message: message.into(),
+        }
+    }
+
+    pub fn log(message: impl Into<String>) -> Self {
+        Self {
+            percent: None,
+            phase: None,
+            message: message.into(),
+        }
+    }
 }
 
 pub type EventSink = dyn Fn(BuildEvent) + Send + Sync;
@@ -74,10 +102,10 @@ pub async fn run_build(request: BuildRequest, on_event: &EventSink) -> Result<Bu
         .await
         .map_err(|error| BuildError::Io(error.to_string()))?;
 
-    on_event(BuildEvent {
-        percent: Some(0),
-        message: "Preparing build environment.".to_owned(),
-    });
+    on_event(BuildEvent::phase(
+        "environment",
+        "Preparing build environment.",
+    ));
 
     if request.target.platform == TargetPlatform::Macos {
         let native_paths = script::BuildPaths {
@@ -98,10 +126,7 @@ pub async fn run_build(request: BuildRequest, on_event: &EventSink) -> Result<Bu
         container::run_container(&script, &mounts, on_event).await?;
     }
 
-    on_event(BuildEvent {
-        percent: Some(100),
-        message: "Collecting artifacts.".to_owned(),
-    });
+    on_event(BuildEvent::phase("complete", "Collecting artifacts."));
 
     let mut artifacts = Vec::new();
     let mut entries = tokio::fs::read_dir(&request.output_directory)

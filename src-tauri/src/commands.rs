@@ -17,6 +17,8 @@ use tauri_plugin_shell::ShellExt;
 use crate::build::{
     self, BuildRequest, BuildTarget, OutputFormat, TargetArchitecture, TargetPlatform,
 };
+use crate::clean::{self, CleanPlan, CleanReport, CleanRequest};
+use crate::settings::{self, LauncherSettings};
 use crate::source::{asset, git};
 
 pub const BUILD_EVENT: &str = "build://event";
@@ -92,6 +94,8 @@ impl From<TargetDto> for BuildTarget {
 pub struct StartBuildRequest {
     pub asset_path: String,
     pub target: TargetDto,
+    /// Optional user-chosen destination root. A timestamped child is created here.
+    pub output_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -106,6 +110,7 @@ pub struct BuildResponse {
 #[serde(rename_all = "camelCase")]
 struct BuildEventDto {
     percent: Option<u8>,
+    phase: Option<String>,
     message: String,
 }
 
@@ -160,6 +165,45 @@ pub async fn validate_asset(path: String) -> Result<ValidatedAsset, String> {
     validated_asset(Path::new(&path)).await
 }
 
+#[tauri::command]
+pub async fn choose_output_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .set_title("Select output folder")
+        .blocking_pick_folder();
+    Ok(picked
+        .and_then(|folder| folder.into_path().ok())
+        .map(|path| path_to_string(&path)))
+}
+
+#[tauri::command]
+pub fn load_settings(app: tauri::AppHandle) -> Result<LauncherSettings, String> {
+    settings::load_settings(&app)
+}
+
+#[tauri::command]
+pub fn save_settings(
+    app: tauri::AppHandle,
+    settings: LauncherSettings,
+) -> Result<(), String> {
+    let cleaned = LauncherSettings {
+        output_path: settings
+            .output_path
+            .as_deref()
+            .filter(|path| !path.trim().is_empty())
+            .map(|path| {
+                let normalized = settings::absolute_path(Path::new(path))?;
+                if normalized.is_file() {
+                    return Err(format!("Output path is a file: {}", normalized.display()));
+                }
+                Ok(path_to_string(&normalized))
+            })
+            .transpose()?,
+    };
+    settings::save_settings(&app, &cleaned)
+}
+
 /// Exposed for diagnostics and retry flows. `start_build` uses the same helper
 /// so a fresh command call after a failure simply reuses the cached checkout.
 #[tauri::command]
@@ -185,20 +229,32 @@ pub async fn start_build(
         .try_lock()
         .map_err(|_| "Another launcher operation is already running.".to_owned())?;
 
+    let on_event = build_event_emitter(app.clone());
+    on_event(build::BuildEvent::phase(
+        "validating",
+        "Validating Data.rsdk...",
+    ));
+
     let target = BuildTarget::from(request.target);
     // Validate before cloning a large repository if the selection is impossible.
     target.validate().map_err(|error| error.to_string())?;
 
     let data_path = PathBuf::from(&request.asset_path);
     let validated = validated_asset(&data_path).await?;
-    let source_path = prepared_source(&app).await?;
-    let output_directory = output_directory(&app, target)?;
 
-    let on_event = build_event_emitter(app.clone());
-    on_event(build::BuildEvent {
-        percent: Some(0),
-        message: "Preparing build environment.".to_owned(),
-    });
+    on_event(build::BuildEvent::phase(
+        "environment",
+        "Preparing source checkout...",
+    ));
+    let source_path = prepared_source(&app).await?;
+
+    on_event(build::BuildEvent::phase(
+        "environment",
+        "Preparing build environment...",
+    ));
+    let (output_directory, output_root) =
+        output_directory(&app, target, request.output_path.as_deref())?;
+    settings::remember_output(&app, &output_directory, &output_root)?;
 
     let result = build::run_build(
         BuildRequest {
@@ -233,6 +289,31 @@ pub async fn open_output_folder(app: tauri::AppHandle, path: String) -> Result<(
     app.shell()
         .open(path, None)
         .map_err(|error| error.to_string())
+}
+
+/// Read-only preview shown in the Full Clean confirmation dialog.
+#[tauri::command]
+pub async fn clean_preview(app: tauri::AppHandle) -> Result<CleanPlan, String> {
+    Ok(clean::clean_preview(&app).await)
+}
+
+#[tauri::command]
+pub async fn full_clean(
+    request: CleanRequest,
+    app: tauri::AppHandle,
+) -> Result<CleanReport, String> {
+    let state = build_state(&app)?;
+    let _operation = state
+        .operation
+        .try_lock()
+        .map_err(|_| "Another launcher operation is already running.".to_owned())?;
+
+    let on_event = build_event_emitter(app.clone());
+    on_event(build::BuildEvent::phase(
+        "cleaning",
+        "Full Clean started.",
+    ));
+    Ok(clean::full_clean(&app, request, &on_event).await)
 }
 
 fn build_state(app: &tauri::AppHandle) -> Result<Arc<BuildState>, String> {
@@ -273,24 +354,48 @@ async fn prepared_source(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Each build gets a fresh directory so a failed run cannot contaminate the
-/// artifacts of a later one. Names contain only fixed slugs and a timestamp.
-fn output_directory(app: &tauri::AppHandle, target: BuildTarget) -> Result<PathBuf, String> {
+/// artifacts of a later one. A custom root receives a timestamped child but is
+/// never deleted by Full Clean; only that child is tracked for cleanup.
+fn output_directory(
+    app: &tauri::AppHandle,
+    target: BuildTarget,
+    custom_root: Option<&str>,
+) -> Result<(PathBuf, PathBuf), String> {
     let cache = app
         .path()
         .app_cache_dir()
         .map_err(|error| error.to_string())?;
+    let root = match custom_root {
+        Some(path) => settings::absolute_path(Path::new(path))?,
+        None => cache.join("outputs"),
+    };
+    if root.is_file() {
+        return Err(format!("Output root is a file: {}", root.display()));
+    }
+    std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    let root = root.canonicalize().unwrap_or(root);
+
+    // Never build into the app cache root or the managed source checkout.
+    let source_checkout = cache.join("Sonic-Mania-Decompilation");
+    if root == cache || root.starts_with(&source_checkout) {
+        return Err(format!(
+            "Choose an output folder outside the launcher cache/source: {}",
+            root.display()
+        ));
+    }
+
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
-
-    Ok(cache.join("outputs").join(format!(
+    let directory = root.join(format!(
         "{}-{}-{}-{}",
         platform_slug(target.platform),
         architecture_slug(target.architecture),
         format_slug(target.format),
         stamp
-    )))
+    ));
+    Ok((directory, root))
 }
 
 fn build_event_emitter(app: tauri::AppHandle) -> impl Fn(build::BuildEvent) + Send + Sync + 'static {
@@ -299,6 +404,7 @@ fn build_event_emitter(app: tauri::AppHandle) -> impl Fn(build::BuildEvent) + Se
             BUILD_EVENT,
             BuildEventDto {
                 percent: event.percent,
+                phase: event.phase,
                 message: event.message,
             },
         );
@@ -311,6 +417,7 @@ fn source_event_emitter(app: tauri::AppHandle) -> impl Fn(&str) + Send + 'static
             BUILD_EVENT,
             BuildEventDto {
                 percent: None,
+                phase: None,
                 message: message.to_owned(),
             },
         );

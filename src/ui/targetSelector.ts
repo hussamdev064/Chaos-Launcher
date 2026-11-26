@@ -103,6 +103,8 @@ export interface TargetSelectorOptions {
   format: OutputFormat;
   /** Authoritative host OS from Rust; falls back to user-agent detection. */
   isMacHost?: boolean;
+  /** `compact` is used by the dashboard; `wizard` keeps the original step view. */
+  variant?: "wizard" | "compact";
   onChange: (platform: TargetPlatform, architecture: TargetArchitecture, format: OutputFormat) => void;
 }
 
@@ -111,44 +113,64 @@ export function renderTargetSelector({
   architecture,
   format,
   isMacHost: macHostOverride,
+  variant = "wizard",
   onChange,
 }: TargetSelectorOptions): HTMLElement {
   const current = platformOption(platform);
   const macHost = macHostOverride ?? isMacHost();
+  const compact = variant === "compact";
   const section = document.createElement("section");
 
   section.innerHTML = `
-    <div class="mb-5">
-      <h2 class="text-2xl font-semibold tracking-tight">Choose your target</h2>
-      <p class="mt-1 text-sm text-slate-400">Platform, CPU architecture, and output format.</p>
+    <div class="${compact ? "mb-3" : "mb-5"}">
+      <h2 class="${
+        compact
+          ? "text-base font-semibold text-slate-200"
+          : "text-2xl font-semibold tracking-tight"
+      }">${compact ? "Target profile" : "Choose your target"}</h2>
+      <p class="${
+        compact ? "mt-0.5 text-[11px] text-slate-500" : "mt-1 text-sm text-slate-400"
+      }">${
+        compact
+          ? "Platform, architecture, and output format"
+          : "Platform, CPU architecture, and output format."
+      }</p>
     </div>
 
-    <div class="grid gap-3 sm:grid-cols-2" data-role="platforms">
+    <div class="${compact ? "grid grid-cols-2 gap-2 sm:grid-cols-4" : "grid gap-3 sm:grid-cols-2"}" data-role="platforms">
       ${PLATFORM_OPTIONS.map(
-        (option) => `
-          <button type="button" data-platform="${option.id}"
-                  ${option.requiresMacHost && !macHost ? "disabled aria-disabled=\"true\"" : `aria-pressed="${option.id === platform}"`}
-                  class="rounded-2xl border p-4 text-left transition ${
-                    option.id === platform
-                      ? "border-sky-500 bg-sky-500/10"
-                      : "border-slate-800 bg-slate-900/50 hover:border-slate-600"
-                  } ${option.requiresMacHost && !macHost ? "cursor-not-allowed opacity-40" : ""}">
-            <span class="block font-medium">${option.label}</span>
-            <span class="mt-1 block text-xs text-slate-400">${
-              option.requiresMacHost && !macHost ? "Requires a macOS host" : option.hint
-            }</span>
-          </button>`,
+        (option) => {
+          const disabled = option.requiresMacHost && !macHost;
+          const selected = option.id === platform;
+          return `
+            <button type="button" data-platform="${option.id}"
+                    ${disabled ? 'disabled aria-disabled="true"' : `aria-pressed="${selected}"`}
+                    class="rounded-xl border ${
+                      compact ? "p-2.5" : "p-4"
+                    } text-left transition ${
+                      selected
+                        ? "border-sky-500 bg-sky-500/10"
+                        : "border-slate-800 bg-slate-900/50 hover:border-slate-600"
+                    } ${disabled ? "cursor-not-allowed opacity-40" : ""}">
+              <span class="${compact ? "text-sm" : ""} block font-medium">${option.label}</span>
+              <span class="mt-1 block text-xs text-slate-400">${
+                disabled ? "Requires a macOS host" : compact ? option.hint.split(" ")[0] : option.hint
+              }</span>
+            </button>`;
+        },
       ).join("")}
     </div>
 
-    <div class="mt-7">
-      <h3 class="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">Architecture</h3>
+    <div class="${compact ? "mt-4" : "mt-7"}">
+      <h3 class="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">Architecture</h3>
       <div class="flex flex-wrap gap-2" data-role="architectures">
         ${current.architectures
           .map(
             (option) => `
               <button type="button" data-architecture="${option}" aria-pressed="${option === architecture}"
-                      class="rounded-xl border px-4 py-2 text-sm transition ${
+                      class="rounded-lg border ${
+                        compact ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm"
+                      } transition ${
                         option === architecture
                           ? "border-sky-500 bg-sky-500/10 text-sky-200"
                           : "border-slate-800 bg-slate-900/50 text-slate-300 hover:border-slate-600"
@@ -158,20 +180,24 @@ export function renderTargetSelector({
       </div>
     </div>
 
-    <div class="mt-7">
-      <h3 class="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-500">Output format</h3>
-      <div class="grid gap-3 sm:grid-cols-2" data-role="formats">
+    <div class="${compact ? "mt-4" : "mt-7"}">
+      <h3 class="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-500">Output format</h3>
+      <div class="${compact ? "grid gap-2 sm:grid-cols-2" : "grid gap-3 sm:grid-cols-2"}" data-role="formats">
         ${current.formats
           .map(
             (option) => `
               <button type="button" data-format="${option.id}" aria-pressed="${option.id === format}"
-                      class="rounded-2xl border p-4 text-left transition ${
+                      class="rounded-xl border ${
+                        compact ? "p-2.5" : "p-4"
+                      } text-left transition ${
                         option.id === format
                           ? "border-sky-500 bg-sky-500/10"
                           : "border-slate-800 bg-slate-900/50 hover:border-slate-600"
                       }">
-                <span class="block font-medium">${option.label}</span>
-                <span class="mt-1 block text-xs text-slate-400">${option.hint}</span>
+                <span class="${compact ? "text-xs" : ""} block font-medium">${option.label}</span>
+                <span class="mt-0.5 block text-xs text-slate-400">${
+                  compact ? option.hint.split(" ")[0] : option.hint
+                }</span>
               </button>`,
           )
           .join("")}
@@ -181,7 +207,9 @@ export function renderTargetSelector({
     ${
       macHost
         ? ""
-        : `<p class="mt-6 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-200">
+        : `<p class="${
+            compact ? "mt-4" : "mt-6"
+          } rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-200">
              macOS builds require a macOS host: Apple SDK restrictions make Linux container cross-compilation unreliable.
            </p>`
     }
@@ -210,7 +238,7 @@ export function renderTargetSelector({
     });
   });
 
-  // Keep the step heading reachable for assistive tech after a re-render.
+  // Keep the section heading reachable for assistive tech after a re-render.
   queryRequired<HTMLElement>(section, "h2").setAttribute("tabindex", "-1");
   return section;
 }

@@ -32,6 +32,7 @@ pub fn build_script(target: BuildTarget, paths: &BuildPaths) -> String {
     // POSIX-compatible so the same script can run under macOS /bin/sh.
     script.push_str("set -eu\nexec 2>&1\n");
     script.push_str("echo '::progress::5'\n");
+    script.push_str("echo '::phase::configuring'\n");
     script.push_str(&format!("SRC={source}\nDATA={data}\nBUILD={build}\nOUT={output}\n"));
     script.push_str("rm -rf \"$BUILD\"\nmkdir -p \"$BUILD\" \"$OUT\"\n");
 
@@ -55,6 +56,7 @@ fn common_cmake_prefix(extra_args: &[&str]) -> String {
 fn push_windows_script(script: &mut String, format: OutputFormat) {
     let portable = if format == OutputFormat::Portable { 1 } else { 0 };
     script.push_str(&format!("FORMAT_PORTABLE={portable}\n"));
+    script.push_str("echo '::phase::compiling'\n");
     script.push_str("echo '::stage::configuring Windows build'\n");
     // MSVC resolves these DirectX/XAudio imports implicitly; MinGW needs them
     // in the C++ standard libraries. Include CMake's normal MinGW defaults too,
@@ -71,6 +73,7 @@ fn push_windows_script(script: &mut String, format: OutputFormat) {
 [ -n "$BIN" ] || { echo 'Could not locate SonicMania.exe after build' >&2; exit 3; }
 "#);
 
+    script.push_str("echo '::phase::packaging'\n");
     // Portable output bundles only binaries/DLLs: proprietary Data.rsdk is
     // never distributed, even when the user supplied it for this build.
     script.push_str(r#"if [ "${FORMAT_PORTABLE:-0}" = "1" ]; then
@@ -85,6 +88,7 @@ fi
 }
 
 fn push_linux_script(script: &mut String, format: OutputFormat) {
+    script.push_str("echo '::phase::compiling'\n");
     script.push_str("echo '::stage::configuring Linux build'\n");
     // Upstream defaults to OpenGL/GLFW; the builder image installs SDL2 instead.
     script.push_str(&common_cmake_prefix(&["-DRETRO_SUBSYSTEM=SDL2", "-DUSE_SDL_AUDIO=ON"]));
@@ -96,6 +100,7 @@ fn push_linux_script(script: &mut String, format: OutputFormat) {
 [ -n "$BIN" ] || { echo 'Could not locate SonicMania binary after build' >&2; exit 3; }
 "#);
 
+    script.push_str("echo '::phase::packaging'\n");
     if format == OutputFormat::AppImage {
         script.push_str(&r#"APPDIR="$BUILD/AppDir"
 rm -rf "$APPDIR"
@@ -133,6 +138,7 @@ fn push_android_script(script: &mut String, architecture: super::target::TargetA
         _ => "arm64-v8a",
     };
 
+    script.push_str("echo '::phase::compiling'\n");
     script.push_str(r#"echo '::stage::building Android APK'
 # Upstream keeps the Android/Gradle project in the RSDKv5 submodule.
 GRADLE_SRC="$SRC/dependencies/RSDKv5/android"
@@ -185,6 +191,7 @@ chmod +x ./gradlew
     script.push_str(&format!(
         "./gradlew assembleRelease --no-daemon -PABIFILTERS='{abi}' -PRETRO_DISABLE_PLUS=ON -PRETRO_REVISION=5\n"
     ));
+    script.push_str("echo '::phase::packaging'\n");
     script.push_str(r#"echo '::progress::80'
 APK=$(find "$GRADLE_WORK" -type f -name '*.apk' -print -quit)
 [ -n "$APK" ] || { echo 'Could not locate a built APK' >&2; exit 3; }
@@ -202,6 +209,7 @@ fn push_macos_script(script: &mut String, target: BuildTarget) {
 
     // The pinned submodule has no Darwin CMake platform; upstream ships Xcode
     // projects for macOS, so use xcodebuild on the native macOS host.
+    script.push_str("echo '::phase::compiling'\n");
     script.push_str("echo '::stage::building macOS app (native Xcode host)'\n");
     script.push_str(&format!(
         "ARCHS='{architectures}'\nXCODE_BUILD=\"$BUILD/xcode\"\nOTHER_CFLAGS='$(inherited) -DRETRO_REVISION=5 -DRETRO_DISABLE_PLUS=1'\n"
@@ -211,6 +219,7 @@ fn push_macos_script(script: &mut String, target: BuildTarget) {
 echo '::progress::35'
 xcodebuild -quiet -project "$SRC/dependencies/RSDKv5/RSDKv5.xcodeproj" -scheme RSDKv5 \
   -configuration Release -derivedDataPath "$XCODE_BUILD" ONLY_ACTIVE_ARCH=NO ARCHS="$ARCHS" OTHER_CFLAGS="$OTHER_CFLAGS"
+echo '::phase::packaging'
 echo '::progress::80'
 APP_SOURCE=$(find "$XCODE_BUILD" -type d -name 'RSDKv5.app' -print -quit)
 [ -n "$APP_SOURCE" ] || { echo 'Could not locate built RSDKv5.app' >&2; exit 3; }
