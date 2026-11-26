@@ -292,3 +292,33 @@ Resolved versions and verification results:
             prebuilt game binary, SDK, package, or tool was downloaded or
             published. A follow-up docs-only commit records these results on
             main; the release tag remains at the v0.1.0 commit.
+2026-11-26 — User reported the GitHub AppImage did not launch. Reproduced
+            locally: the AppImage exited 139 (SIGSEGV) before any UI. Loader
+            tracing showed crashes during shared-library constructors,
+            beginning with libmp3lame.so.0. The cached linuxdeploy strips
+            copied libraries; its old strip could not handle `.relr.dyn`, and
+            the earlier host-strip workaround produced libraries whose
+            constructors crashed. `NO_STRIP` only skips the main executable,
+            and a no-op `strip` on PATH did not intercept linuxdeploy's
+            absolute invocation, so the final fix restored 191 bundled ELF
+            libraries from their unmodified source copies in
+            ~/.local/chaoslauncher-sysdeps and /usr/lib64, then assembled the
+            AppImage directly with the cached appimagetool. No downloads or
+            tool installations were performed. New AppImage:
+            src-tauri/target/release/bundle/appimage/ChaosLauncher_0.1.0_amd64.AppImage
+            (130,983,104 bytes, sha256
+            18c1488c108343db3be6d2af44e0cc5cec8b7494d43b07ee051e55d3dab0d25b),
+            superseding the earlier 120,351,224-byte 47ed748c... asset. Runtime
+            smoke test: the AppImage stayed alive for a 25-second timeout
+            without segfaulting (exit 124), and a GDB attach showed the main
+            thread in gtk_main_iteration_do/Tauri's event loop. X11 window
+            search found no title because this session uses the Wayland
+            portal; no screenshot tool worked non-interactively, so this is a
+            process/event-loop verification rather than a visual review.
+            GitHub release 459135322 was updated using the stored credential:
+            the .deb and old AppImage assets were deleted, the release body was
+            rewritten as AppImage-only, and the replacement AppImage was
+            uploaded. Final API verification showed exactly one uploaded asset
+            whose digest matches the local SHA-256. `bundle.targets` was set to
+            ["appimage"] and the local generated .deb was removed. No game
+            assets or prebuilt game binaries were downloaded or published.
